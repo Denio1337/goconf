@@ -257,9 +257,12 @@ goenv/
 │   ├── store.go           # Потокобезопасное хранилище и поиск ключей
 │   └── store_test.go      # Тесты хранилища
 ├── source/
-│   └── dotenv/            # Провайдер формата .env
-│       ├── parser.go      # Лексер и парсер .env с интерполяцией
-│       └── dotenv.go      # Реализация Source для .env
+│   ├── dotenv/            # Провайдер формата .env (dotenv.New)
+│   │   ├── parser.go      # Лексер и парсер .env с интерполяцией
+│   │   └── dotenv.go      # Реализация Source для .env
+│   └── mapsource/         # Провайдер in-memory map (mapsource.New)
+│       ├── mapsource.go   # Реализация Source для map
+│       └── mapsource_test.go
 ├── examples/              # Готовые примеры использования
 │   ├── basic/             # Базовый пример с .env
 │   ├── validation_errors/ # Демонстрация строгой валидации

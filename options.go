@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/Denio1337/goenv/source/dotenv"
+	"github.com/Denio1337/goenv/source/mapsource"
 )
 
 // Option is a functional option for configuring a Loader.
@@ -15,6 +16,13 @@ type Option func(*Loader)
 func WithSource(sources ...Source) Option {
 	return func(l *Loader) {
 		l.sources = append(l.sources, sources...)
+	}
+}
+
+// WithMap adds an in-memory map configuration source.
+func WithMap(data map[string]any, opts ...mapsource.Option) Option {
+	return func(l *Loader) {
+		l.sources = append(l.sources, mapsource.New(data, opts...))
 	}
 }
 

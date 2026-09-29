@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Denio1337/goenv"
+	"github.com/Denio1337/goenv/source/mapsource"
 )
 
 type ServerConfig struct {
@@ -78,10 +79,10 @@ func TestLoadFromFile(t *testing.T) {
 
 func TestSourceOverrides(t *testing.T) {
 	baseEnv := "PORT=8080\nSECRET=base-secret\nHOST=base.domain\n"
-	overrideSource := goenv.NewMapSource("override", map[string]any{
+	overrideSource := mapsource.New(map[string]any{
 		"PORT": "9999",
 		"HOST": "override.domain",
-	})
+	}, mapsource.WithName("override"))
 
 	var cfg ServerConfig
 	err := goenv.Load(&cfg,
@@ -102,6 +103,22 @@ func TestSourceOverrides(t *testing.T) {
 	// Secret should come from the first source
 	if cfg.Secret != "base-secret" {
 		t.Errorf("Secret: expected base-secret, got %q", cfg.Secret)
+	}
+}
+
+func TestWithMap(t *testing.T) {
+	var cfg ServerConfig
+	err := goenv.Load(&cfg, goenv.WithMap(map[string]any{
+		"HOST":   "10.0.0.1",
+		"PORT":   5000,
+		"SECRET": "map-secret",
+	}))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.Host != "10.0.0.1" || cfg.Port != 5000 || cfg.Secret != "map-secret" {
+		t.Errorf("WithMap mismatch: %+v", cfg)
 	}
 }
 

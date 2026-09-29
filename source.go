@@ -3,6 +3,7 @@ package goenv
 import (
 	"context"
 
+	"github.com/Denio1337/goenv/source/mapsource"
 	"github.com/Denio1337/goenv/store"
 )
 
@@ -17,35 +18,14 @@ type Source interface {
 	Load(ctx context.Context) (map[string]any, error)
 }
 
-// MapSource is an in-memory Source backed by a Go map.
-type MapSource struct {
-	name string
-	data map[string]any
-}
+// MapSource is an alias for mapsource.Source for backward compatibility.
+// Prefer using mapsource.New or mapsource.NewNamed directly.
+type MapSource = mapsource.Source
 
 // NewMapSource creates a new in-memory MapSource.
+// Prefer using mapsource.New(data) or mapsource.NewNamed(name, data) directly.
 func NewMapSource(name string, data map[string]any) *MapSource {
-	if name == "" {
-		name = "memory"
-	}
-	cp := make(map[string]any, len(data))
-	for k, v := range data {
-		cp[k] = v
-	}
-	return &MapSource{
-		name: name,
-		data: cp,
-	}
-}
-
-// Name returns the source name.
-func (m *MapSource) Name() string {
-	return m.name
-}
-
-// Load returns the copy of in-memory configuration map.
-func (m *MapSource) Load(ctx context.Context) (map[string]any, error) {
-	return m.data, nil
+	return mapsource.NewNamed(name, data)
 }
 
 // Store is an alias for store.Store for backward compatibility and convenience.
