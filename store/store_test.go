@@ -3,7 +3,7 @@ package store_test
 import (
 	"testing"
 
-	"github.com/Denio1337/goenv/store"
+	"github.com/Denio1337/goconf/store"
 )
 
 func TestStoreNewAndMerge(t *testing.T) {

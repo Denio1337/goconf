@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Denio1337/goenv"
+	"github.com/Denio1337/goconf"
 )
 
 type Config struct {
@@ -22,7 +22,7 @@ type Config struct {
 func main() {
 	var cfg Config
 
-	err := goenv.Load(&cfg, goenv.WithDotEnv(".env"))
+	err := goconf.Load(&cfg, goconf.WithDotEnv(".env"))
 	if err == nil {
 		fmt.Println("Unexpected success! Config loaded.")
 		return
@@ -32,7 +32,7 @@ func main() {
 	fmt.Println(err)
 
 	// Programmatic inspection of specific field errors
-	var valErr *goenv.ValidationError
+	var valErr *goconf.ValidationError
 	if errors.As(err, &valErr) {
 		fmt.Printf("\nTotal field errors caught: %d\n", len(valErr.Errors))
 		for i, fe := range valErr.Errors {

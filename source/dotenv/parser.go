@@ -66,17 +66,17 @@ func (p *Parser) Parse(r io.Reader) (map[string]string, error) {
 		}
 
 		// Look for '=' separator
-		idx := strings.IndexByte(trimmed, '=')
-		if idx < 0 {
+		before, after, ok := strings.Cut(trimmed, "=")
+		if !ok {
 			return nil, fmt.Errorf("line %d: invalid format, missing '=' in line %q", lineNum, line)
 		}
 
-		key := strings.TrimSpace(trimmed[:idx])
+		key := strings.TrimSpace(before)
 		if key == "" {
 			return nil, fmt.Errorf("line %d: empty key name", lineNum)
 		}
 
-		rawValue := trimmed[idx+1:]
+		rawValue := after
 		val, err := p.parseValue(rawValue, scanner, &lineNum)
 		if err != nil {
 			return nil, fmt.Errorf("line %d: %w", lineNum, err)

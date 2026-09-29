@@ -1,4 +1,4 @@
-package goenv
+package goconf
 
 import (
 	"errors"
@@ -74,14 +74,14 @@ type ValidationError struct {
 // Error formats all collected errors into a structured, readable list.
 func (v *ValidationError) Error() string {
 	if len(v.Errors) == 0 {
-		return "goenv: validation failed"
+		return "goconf: validation failed"
 	}
 	if len(v.Errors) == 1 {
-		return fmt.Sprintf("goenv schema error: %s", v.Errors[0].Error())
+		return fmt.Sprintf("goconf schema error: %s", v.Errors[0].Error())
 	}
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "goenv: schema validation failed with %d error(s):\n", len(v.Errors))
+	fmt.Fprintf(&sb, "goconf: schema validation failed with %d error(s):\n", len(v.Errors))
 	for i, err := range v.Errors {
 		fmt.Fprintf(&sb, "  [%d] %s\n", i+1, err.Error())
 	}

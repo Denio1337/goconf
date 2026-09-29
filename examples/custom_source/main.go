@@ -7,12 +7,12 @@ import (
 	"log"
 	"os"
 
-	"github.com/Denio1337/goenv"
+	"github.com/Denio1337/goconf"
 )
 
 // JSONSource demonstrates how easily other configuration formats
 // (JSON, YAML, TOML, INI, Consul, etcd, etc.) can be added by implementing
-// the goenv.Source interface.
+// the goconf.Source interface.
 type JSONSource struct {
 	path string
 }
@@ -61,7 +61,7 @@ func main() {
 	var cfg Config
 
 	// Load configuration using custom JSON source
-	err := goenv.Load(&cfg, goenv.WithSource(NewJSONSource("config.json")))
+	err := goconf.Load(&cfg, goenv.WithSource(NewJSONSource("config.json")))
 	if err != nil {
 		log.Fatalf("failed to load json configuration: %v", err)
 	}

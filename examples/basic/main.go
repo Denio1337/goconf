@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/Denio1337/goenv"
+	"github.com/Denio1337/goconf"
 )
 
 type ServerConfig struct {
@@ -36,7 +36,7 @@ func main() {
 	var cfg AppConfig
 
 	// Load configuration from .env file
-	if err := goenv.Load(&cfg, goenv.WithDotEnv(".env")); err != nil {
+	if err := goconf.Load(&cfg, goconf.WithDotEnv(".env")); err != nil {
 		log.Fatalf("Configuration error: %v", err)
 	}
 

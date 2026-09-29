@@ -1,4 +1,4 @@
-// Package goenv provides a robust, strictly typed configuration management library for Go.
+// Package goconf provides a robust, strictly typed configuration management library for Go.
 //
 // It loads configuration data from multiple sources (such as .env files, OS environment
 // variables, JSON, YAML, TOML) into a single Go struct passed by reference.
@@ -13,15 +13,18 @@
 //   - DotEnv (.env) Support: Full support for quoted strings, multiline values, escapes,
 //     inline comments, and variable interpolation (${VAR:-default}).
 //   - Zero Dependencies: Built entirely using the Go standard library.
-package goenv
+package goconf
 
 import (
 	"context"
 	"fmt"
 
-	"github.com/Denio1337/goenv/source/dotenv"
-	"github.com/Denio1337/goenv/store"
+	"github.com/Denio1337/goconf/source"
+	"github.com/Denio1337/goconf/source/dotenv"
+	"github.com/Denio1337/goconf/store"
 )
+
+type Source = source.Source
 
 // Loader manages sources, options, and decoding configuration into target structs.
 type Loader struct {
@@ -77,7 +80,7 @@ func (l *Loader) Load(target any) error {
 //	    Port int `env:"PORT" default:"8080"`
 //	}
 //	var cfg Config
-//	if err := goenv.Load(&cfg); err != nil {
+//	if err := goconf.Load(&cfg); err != nil {
 //	    log.Fatalf("failed to load configuration: %v", err)
 //	}
 func Load(target any, opts ...Option) error {
@@ -88,6 +91,6 @@ func Load(target any, opts ...Option) error {
 // Useful during application bootstrapping (e.g. in func main or init).
 func MustLoad(target any, opts ...Option) {
 	if err := Load(target, opts...); err != nil {
-		panic(fmt.Sprintf("goenv: %v", err))
+		panic(fmt.Sprintf("goconf: %v", err))
 	}
 }

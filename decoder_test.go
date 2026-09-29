@@ -1,4 +1,4 @@
-package goenv
+package goconf
 
 import (
 	"errors"
@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Denio1337/goenv/store"
+	"github.com/Denio1337/goconf/store"
 )
 
 type CustomPort int

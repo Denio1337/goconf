@@ -1,10 +1,10 @@
-# goenv
+# goconf
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/Denio1337/goenv.svg)](https://pkg.go.dev/github.com/Denio1337/goenv)
+[![Go Reference](https://pkg.go.dev/badge/github.com/Denio1337/goconf.svg)](https://pkg.go.dev/github.com/Denio1337/goconf)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Go Report Card](https://goreportcard.com/badge/github.com/Denio1337/goenv)](https://goreportcard.com/report/github.com/Denio1337/goenv)
+[![Go Report Card](https://goreportcard.com/badge/github.com/Denio1337/goconf)](https://goreportcard.com/report/github.com/Denio1337/goconf)
 
-**goenv** — идиоматическая, строго типизированная библиотека на языке Go для загрузки и валидации конфигурации из различных источников в единую структуру (`struct`).
+**goconf** — библиотека на языке Go для загрузки и валидации конфигурации из различных источников в единую структуру (`struct`).
 
 Проект спроектирован по модульной архитектуре с поддержкой расширяемых провайдеров (`Source`). Из коробки полностью реализован продвинутый парсер файлов `.env`, а добавление новых форматов (JSON, YAML, TOML, переменные окружения ОС, Consul, Vault и т.д.) выполняется реализацией одного компактного интерфейса.
 
@@ -40,7 +40,7 @@
 ## Установка
 
 ```bash
-go get github.com/Denio1337/goenv
+go get github.com/Denio1337/goconf
 ```
 
 Требуется версия Go 1.20 или новее.
@@ -75,7 +75,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/Denio1337/goenv"
+	"github.com/Denio1337/goconf"
 )
 
 type ServerConfig struct {
@@ -102,7 +102,7 @@ func main() {
 	var cfg Config
 
 	// Загрузка конфигурации из .env файла
-	if err := goenv.Load(&cfg, goenv.WithDotEnv(".env")); err != nil {
+	if err := goconf.Load(&cfg, goconf.WithDotEnv(".env")); err != nil {
 		log.Fatalf("Ошибка конфигурации: %v", err)
 	}
 
@@ -132,33 +132,10 @@ type ServerConfig struct {
 }
 ```
 
----
-
-## Строгая схема и отчёт об ошибках
-
-Если в конфигурации допущены ошибки типизации или пропущены обязательные поля, `goenv` возвращает ошибку `*ValidationError`, содержащую список всех некорректных полей.
-
-### Пример некорректного `.env`:
-```env
-PORT=invalid_number
-TIMEOUT=invalid_duration
-DEBUG=not_a_bool
-# DATABASE_PASSWORD отсутствует, хотя помечен required:"true"
-```
-
-### Форматированный вывод ошибки:
-```text
-goenv: schema validation failed with 4 error(s):
-  [1] field "Server.Port" (key "SERVER_PORT") with value "invalid_number": cannot convert to int: expected integer, got "invalid_number": strconv.ParseInt: parsing "invalid_number": invalid syntax
-  [2] field "Server.Timeout" (key "SERVER_TIMEOUT") with value "invalid_duration": cannot convert to time.Duration: invalid duration "invalid_duration": time: invalid duration "invalid_duration"
-  [3] field "Debug" (key "DEBUG") with value "not_a_bool": cannot convert to bool: expected boolean (true/false/1/0), got "not_a_bool": strconv.ParseBool: parsing "not_a_bool": invalid syntax
-  [4] field "Database.Password" (key "DATABASE_PASSWORD"): required field is missing or empty
-```
-
 ### Программная инспекция ошибок:
 
 ```go
-var valErr *goenv.ValidationError
+var valErr *goconf.ValidationError
 if errors.As(err, &valErr) {
     for _, fe := range valErr.Errors {
         fmt.Println("Поле:", fe.Field)       // e.g. "Server.Port"
@@ -172,7 +149,7 @@ if errors.As(err, &valErr) {
 
 Ошибки поддерживают проверку через стандартный механизм `errors.Is`:
 ```go
-if errors.Is(err, goenv.ErrMissingRequired) {
+if errors.Is(err, goconf.ErrMissingRequired) {
     // обработка отсутствующих обязательных полей
 }
 ```
@@ -215,9 +192,9 @@ func (s *JSONSource) Load(ctx context.Context) (map[string]any, error) {
 ### Использование нескольких источников с приоритетами:
 
 ```go
-err := goenv.Load(&cfg,
-    goenv.WithDotEnv(".env"),                  // Базовые значения из .env
-    goenv.WithSource(NewJSONSource("cfg.json")),// Переопределения из JSON
+err := goconf.Load(&cfg,
+    goconf.WithDotEnv(".env"),                  // Базовые значения из .env
+    goconf.WithSource(NewJSONSource("cfg.json")),// Переопределения из JSON
 )
 ```
 Источники применяются по порядку: более поздние перезаписывают совпавшие ключи более ранних.
@@ -240,39 +217,6 @@ func (s *ServerConfig) Validate() error {
     return nil
 }
 ```
-
----
-
-## Структура репозитория
-
-```
-goenv/
-├── go.mod
-├── goenv.go               # Основной фасад: Load, MustLoad, Loader
-├── options.go             # Функциональные опции (WithDotEnv, WithSource, etc.)
-├── errors.go              # ValidationError, FieldError, sentinel errors
-├── decoder.go             # Строгий рефлексивный декодер схемы
-├── source.go              # Интерфейс Source и MapSource
-├── store/                 # Пакет хранилища конфигурации (store.New)
-│   ├── store.go           # Потокобезопасное хранилище и поиск ключей
-│   └── store_test.go      # Тесты хранилища
-├── source/
-│   ├── dotenv/            # Провайдер формата .env (dotenv.New)
-│   │   ├── parser.go      # Лексер и парсер .env с интерполяцией
-│   │   └── dotenv.go      # Реализация Source для .env
-│   └── mapsource/         # Провайдер in-memory map (mapsource.New)
-│       ├── mapsource.go   # Реализация Source для map
-│       └── mapsource_test.go
-├── examples/              # Готовые примеры использования
-│   ├── basic/             # Базовый пример с .env
-│   ├── validation_errors/ # Демонстрация строгой валидации
-│   └── custom_source/     # Демонстрация добавления JSON источника
-├── decoder_test.go        # Тесты декодирования и типов
-├── goenv_test.go          # Интеграционные тесты
-└── LICENSE                # Лицензия MIT
-```
-
----
 
 ## Лицензия
 

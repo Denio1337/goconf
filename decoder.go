@@ -1,4 +1,4 @@
-package goenv
+package goconf
 
 import (
 	"encoding"
@@ -11,7 +11,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/Denio1337/goenv/store"
+	"github.com/Denio1337/goconf/store"
 )
 
 // Validator is an optional interface that structs or fields can implement
@@ -123,7 +123,7 @@ func (d *Decoder) decodeStruct(v reflect.Value, prefix string, structPath string
 		}
 
 		// Parse tags and options
-		tagInfo := parseFieldTag(field, prefix)
+		tagInfo := parseFieldTag(field)
 
 		// Candidate keys for lookup in the store
 		candidates := d.buildCandidateKeys(tagInfo, prefix, field.Name)
@@ -202,7 +202,7 @@ type fieldTagInfo struct {
 	layout       string
 }
 
-func parseFieldTag(field reflect.StructField, prefix string) fieldTagInfo {
+func parseFieldTag(field reflect.StructField) fieldTagInfo {
 	info := fieldTagInfo{
 		separator: ",",
 	}
@@ -531,14 +531,14 @@ func isConfigStruct(t reflect.Type) bool {
 	}
 
 	// Special stdlib structs handled as scalar values
-	if t == reflect.TypeOf(time.Time{}) || t == reflect.TypeOf(url.URL{}) || t == reflect.TypeOf(net.IP{}) {
+	if t == reflect.TypeFor[time.Time]() || t == reflect.TypeFor[url.URL]() || t == reflect.TypeFor[net.IP]() {
 		return false
 	}
 
 	// If type or *type implements TextUnmarshaler or BinaryUnmarshaler, it's a scalar value
 	ptrType := reflect.PointerTo(t)
-	textUnmarshaler := reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
-	binaryUnmarshaler := reflect.TypeOf((*encoding.BinaryUnmarshaler)(nil)).Elem()
+	textUnmarshaler := reflect.TypeFor[encoding.TextUnmarshaler]()
+	binaryUnmarshaler := reflect.TypeFor[encoding.BinaryUnmarshaler]()
 
 	if t.Implements(textUnmarshaler) || ptrType.Implements(textUnmarshaler) {
 		return false
@@ -557,7 +557,7 @@ func toScreamingSnake(s string) string {
 	runes := []rune(s)
 	n := len(runes)
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		r := runes[i]
 		if i > 0 && unicode.IsUpper(r) {
 			prev := runes[i-1]

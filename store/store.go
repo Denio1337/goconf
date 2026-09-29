@@ -5,6 +5,7 @@
 package store
 
 import (
+	"maps"
 	"strings"
 	"sync"
 )
@@ -87,9 +88,7 @@ func (s *Store) All() map[string]any {
 	defer s.mu.RUnlock()
 
 	res := make(map[string]any, len(s.values))
-	for k, v := range s.values {
-		res[k] = v
-	}
+	maps.Copy(res, s.values)
 	return res
 }
 
