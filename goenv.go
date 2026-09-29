@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	"github.com/Denio1337/goenv/source/dotenv"
+	"github.com/Denio1337/goenv/store"
 )
 
 // Loader manages sources, options, and decoding configuration into target structs.
@@ -50,17 +51,17 @@ func (l *Loader) Load(target any) error {
 		sources = []Source{dotenv.New(".env", dotenv.WithIgnoreMissing(l.ignoreMissing))}
 	}
 
-	store := NewStore()
+	st := store.New()
 
 	for _, src := range sources {
 		data, err := src.Load(l.ctx)
 		if err != nil {
 			return fmt.Errorf("source %q failed to load: %w", src.Name(), err)
 		}
-		store.Merge(data)
+		st.Merge(data)
 	}
 
-	decoder := NewDecoder(store)
+	decoder := NewDecoder(st)
 	decoder.SetStrictUnknown(l.strictUnknown)
 
 	return decoder.Decode(target)

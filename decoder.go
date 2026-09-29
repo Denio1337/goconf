@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/Denio1337/goenv/store"
 )
 
 // Validator is an optional interface that structs or fields can implement
@@ -20,13 +22,13 @@ type Validator interface {
 
 // Decoder decodes configuration from a Store into a target struct with strict schema validation.
 type Decoder struct {
-	store         *Store
+	store         *store.Store
 	strictUnknown bool
 	consumedKeys  map[string]bool
 }
 
 // NewDecoder creates a new Decoder configured with the provided Store.
-func NewDecoder(store *Store) *Decoder {
+func NewDecoder(store *store.Store) *Decoder {
 	return &Decoder{
 		store:        store,
 		consumedKeys: make(map[string]bool),

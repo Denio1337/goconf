@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"testing"
 	"time"
+
+	"github.com/Denio1337/goenv/store"
 )
 
 type CustomPort int
@@ -59,8 +61,8 @@ func TestDecoderSuccess(t *testing.T) {
 		Database     DatabaseConfig `env-prefix:"DB_"`
 	}
 
-	store := NewStore()
-	store.Merge(map[string]any{
+	cfgStore := store.New()
+	cfgStore.Merge(map[string]any{
 		"APP_NAME":     "TestApp",
 		"DEBUG":        "true",
 		"TIMEOUT":      "15s",
@@ -77,7 +79,7 @@ func TestDecoderSuccess(t *testing.T) {
 	})
 
 	var cfg AppConfig
-	d := NewDecoder(store)
+	d := NewDecoder(cfgStore)
 	if err := d.Decode(&cfg); err != nil {
 		t.Fatalf("unexpected decode error: %v", err)
 	}
@@ -135,8 +137,8 @@ func TestDecoderStrictValidationErrors(t *testing.T) {
 		Ports    []int         `env:"PORTS"`
 	}
 
-	store := NewStore()
-	store.Merge(map[string]any{
+	cfgStore := store.New()
+	cfgStore.Merge(map[string]any{
 		"PORT":    "not-a-number",
 		"TIMEOUT": "invalid-duration",
 		"ACTIVE":  "not-a-boolean",
@@ -145,7 +147,7 @@ func TestDecoderStrictValidationErrors(t *testing.T) {
 	})
 
 	var cfg ServerConfig
-	d := NewDecoder(store)
+	d := NewDecoder(cfgStore)
 	err := d.Decode(&cfg)
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -198,13 +200,13 @@ func TestDecoderStrictValidationErrors(t *testing.T) {
 }
 
 func TestDecoderCustomValidator(t *testing.T) {
-	store := NewStore()
-	store.Merge(map[string]any{
+	st := store.New()
+	st.Merge(map[string]any{
 		"MAX_WORKERS": "-5",
 	})
 
 	var cfg ValidatedConfig
-	d := NewDecoder(store)
+	d := NewDecoder(st)
 	err := d.Decode(&cfg)
 	if err == nil {
 		t.Fatal("expected validation error, got nil")
@@ -216,8 +218,8 @@ func TestDecoderCustomValidator(t *testing.T) {
 }
 
 func TestDecoderInvalidTarget(t *testing.T) {
-	store := NewStore()
-	d := NewDecoder(store)
+	st := store.New()
+	d := NewDecoder(st)
 
 	if err := d.Decode(nil); !errors.Is(err, ErrInvalidTarget) {
 		t.Errorf("expected ErrInvalidTarget on nil, got %v", err)

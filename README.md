@@ -252,7 +252,10 @@ goenv/
 ├── options.go             # Функциональные опции (WithDotEnv, WithSource, etc.)
 ├── errors.go              # ValidationError, FieldError, sentinel errors
 ├── decoder.go             # Строгий рефлексивный декодер схемы
-├── source.go              # Интерфейс Source и хранилище Store
+├── source.go              # Интерфейс Source и MapSource
+├── store/                 # Пакет хранилища конфигурации (store.New)
+│   ├── store.go           # Потокобезопасное хранилище и поиск ключей
+│   └── store_test.go      # Тесты хранилища
 ├── source/
 │   └── dotenv/            # Провайдер формата .env
 │       ├── parser.go      # Лексер и парсер .env с интерполяцией
