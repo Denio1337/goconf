@@ -24,18 +24,16 @@ import (
 	"github.com/Denio1337/goconf/store"
 )
 
-type Source = source.Source
-
 // Loader manages sources, options, and decoding configuration into target structs.
 type Loader struct {
-	sources       []Source
+	sources       []source.Source
 	strictUnknown bool
 	ignoreMissing bool
 	ctx           context.Context
 }
 
 // New creates a new Loader with the given options.
-func New(opts ...Option) *Loader {
+func NewLoader(opts ...Option) *Loader {
 	l := &Loader{
 		ctx: context.Background(),
 	}
@@ -51,7 +49,7 @@ func (l *Loader) Load(target any) error {
 	sources := l.sources
 	// Default to .env if no sources were explicitly added
 	if len(sources) == 0 {
-		sources = []Source{dotenv.New(".env", dotenv.WithIgnoreMissing(l.ignoreMissing))}
+		sources = []source.Source{dotenv.New(".env", dotenv.WithIgnoreMissing(l.ignoreMissing))}
 	}
 
 	st := store.New()
@@ -84,7 +82,7 @@ func (l *Loader) Load(target any) error {
 //	    log.Fatalf("failed to load configuration: %v", err)
 //	}
 func Load(target any, opts ...Option) error {
-	return New(opts...).Load(target)
+	return NewLoader(opts...).Load(target)
 }
 
 // MustLoad behaves like Load, but panics if an error occurs.
