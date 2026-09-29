@@ -1,0 +1,13 @@
+{
+  "app_name": "JSONConfiguredService",
+  "port": 9000,
+  "metrics": {
+    "enabled": true,
+    "path": "/metrics"
+  },
+  "database": {
+    "host": "cluster-master.db",
+    "port": 5432,
+    "password": "json-secret-password"
+  }
+}
