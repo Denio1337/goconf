@@ -61,7 +61,7 @@ func main() {
 	var cfg Config
 
 	// Load configuration using custom JSON source
-	err := goconf.Load(&cfg, goenv.WithSource(NewJSONSource("config.json")))
+	err := goconf.Load(&cfg, goconf.WithSource(NewJSONSource("config.json")))
 	if err != nil {
 		log.Fatalf("failed to load json configuration: %v", err)
 	}
