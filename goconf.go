@@ -19,14 +19,13 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Denio1337/goconf/source"
 	"github.com/Denio1337/goconf/source/dotenv"
 	"github.com/Denio1337/goconf/store"
 )
 
 // Loader manages sources, options, and decoding configuration into target structs.
 type Loader struct {
-	sources       []source.Source
+	sources       []Source
 	strictUnknown bool
 	ignoreMissing bool
 	ctx           context.Context
@@ -49,7 +48,7 @@ func (l *Loader) Load(target any) error {
 	sources := l.sources
 	// Default to .env if no sources were explicitly added
 	if len(sources) == 0 {
-		sources = []source.Source{dotenv.New(".env", dotenv.WithIgnoreMissing(l.ignoreMissing))}
+		sources = []Source{dotenv.New(".env", dotenv.WithIgnoreMissing(l.ignoreMissing))}
 	}
 
 	st := store.New()

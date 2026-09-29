@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 
-	"github.com/Denio1337/goconf/source"
 	"github.com/Denio1337/goconf/source/dotenv"
 )
 
@@ -13,7 +12,7 @@ type Option func(*Loader)
 
 // WithSource appends one or more configuration sources to the Loader.
 // Sources are evaluated in order; later sources override values from earlier ones.
-func WithSource(sources ...source.Source) Option {
+func WithSource(sources ...Source) Option {
 	return func(l *Loader) {
 		l.sources = append(l.sources, sources...)
 	}
