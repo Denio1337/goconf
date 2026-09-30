@@ -341,6 +341,30 @@ func (d *Decoder) decodeFieldValue(v reflect.Value, raw any, tagInfo fieldTagInf
 		return nil
 	}
 
+	// Secret[T] wrapper support
+	markerType := reflect.TypeFor[secretMarker]()
+	if v.Type().Implements(markerType) || (v.CanAddr() && v.Addr().Type().Implements(markerType)) {
+		targetVal := v
+		if targetVal.Kind() == reflect.Pointer {
+			if targetVal.IsNil() {
+				targetVal.Set(reflect.New(targetVal.Type().Elem()))
+			}
+			targetVal = targetVal.Elem()
+		}
+		innerType := targetVal.Type().Field(0).Type
+		innerVal := reflect.New(innerType).Elem()
+		if err := d.decodeFieldValue(innerVal, raw, tagInfo); err != nil {
+			return err
+		}
+		if targetVal.CanAddr() {
+			method := targetVal.Addr().MethodByName("Set")
+			if method.IsValid() {
+				method.Call([]reflect.Value{innerVal})
+			}
+		}
+		return nil
+	}
+
 	// Special types that shouldn't be handled as generic slices or maps:
 	// net.IP is defined as []byte in the stdlib, but should be decoded as an IP string
 	if v.Type() == reflect.TypeOf(net.IP{}) {
@@ -656,6 +680,12 @@ func isConfigStruct(t reflect.Type) bool {
 		t = t.Elem()
 	}
 	if t.Kind() != reflect.Struct {
+		return false
+	}
+
+	// Secret[T] is a wrapped scalar value, not a nested config struct
+	markerType := reflect.TypeFor[secretMarker]()
+	if t.Implements(markerType) || reflect.PointerTo(t).Implements(markerType) {
 		return false
 	}
 

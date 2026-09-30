@@ -31,6 +31,7 @@
   - Maps (`map[string]T`)
   - Pointers (allocated only when a corresponding value is present)
   - Nested and embedded structs with prefix inheritance
+  - Sensitive data protection via `goconf.Secret[T]` (masked as `[SECRET]` in logs and prints)
   - Custom deserialization via `encoding.TextUnmarshaler`
   - Business logic validation via the `Validator` interface
 - 🪶 **Minimal Dependencies**: The core library relies strictly on the Go standard library, with lightweight optional modules for YAML and TOML.
@@ -257,6 +258,34 @@ Errors can also be tested using standard `errors.Is`:
 ```go
 if errors.Is(err, goconf.ErrMissingRequired) {
     // Handle missing required fields
+}
+```
+
+---
+
+## Protecting Sensitive Data (`Secret[T]`)
+
+Wrap sensitive fields (passwords, tokens, private keys) in `goconf.Secret[T]` to ensure they are never accidentally leaked in terminal output, application logs, or JSON serialization:
+
+```go
+type DatabaseConfig struct {
+    Host     string                `key:"HOST"`
+    Password goconf.Secret[string] `key:"PASSWORD"`
+    Port     int                   `key:"PORT" default:"5432"`
+}
+
+func main() {
+    var cfg DatabaseConfig
+    goconf.Load(&cfg)
+
+    // Printing the struct or field directly always masks the value as [SECRET]:
+    fmt.Printf("%+v\n", cfg)      // Output: {Host:localhost Password:[SECRET] Port:5432}
+    fmt.Println(cfg.Password)     // Output: [SECRET]
+    log.Println(cfg)              // Output: {localhost [SECRET] 5432}
+
+    // Access the raw secret value safely when needed:
+    rawPassword := cfg.Password.Value() // or cfg.Password.Expose()
+    db.Connect(rawPassword)
 }
 ```
 
