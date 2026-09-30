@@ -12,7 +12,7 @@
 //     by implementing the simple Source interface.
 //   - DotEnv (.env) Support: Full support for quoted strings, multiline values, escapes,
 //     inline comments, and variable interpolation (${VAR:-default}).
-//   - Zero Dependencies: Built entirely using the Go standard library.
+//   - Minimal Dependencies: Core library uses the Go standard library only, with lightweight optional modules for YAML and TOML.
 package goconf
 
 import (

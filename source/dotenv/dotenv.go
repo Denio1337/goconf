@@ -1,3 +1,4 @@
+// Package dotenv provides a .env file and reader configuration Source.
 package dotenv
 
 import (

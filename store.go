@@ -1,7 +1,3 @@
-// Package store provides an in-memory, thread-safe configuration store.
-//
-// It supports hierarchical key-value flattening, case-insensitive lookups,
-// and delimiter normalization (dot, underscore, double-underscore).
 package goconf
 
 import (
@@ -11,13 +7,14 @@ import (
 )
 
 // Store holds the aggregated configuration data from all loaded sources.
-// It is safe for concurrent use by multiple goroutines.
+// It is safe for concurrent use by multiple goroutines, supporting hierarchical
+// key-value flattening, case-insensitive lookups, and delimiter normalization.
 type Store struct {
 	mu     sync.RWMutex
 	values map[string]any
 }
 
-// New initializes a new configuration store, optionally populated with initial key-value maps.
+// NewStore initializes a new configuration store, optionally populated with initial key-value maps.
 func NewStore(initial ...map[string]any) *Store {
 	s := &Store{
 		values: make(map[string]any),
