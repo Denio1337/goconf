@@ -5,6 +5,8 @@ import (
 	"io"
 
 	"github.com/Denio1337/goconf/source/dotenv"
+	"github.com/Denio1337/goconf/source/ini"
+	"github.com/Denio1337/goconf/source/json"
 )
 
 // Option is a functional option for configuring a Loader.
@@ -38,6 +40,38 @@ func WithDotEnvReader(r io.Reader) Option {
 	}
 }
 
+// WithINI adds one or more INI file sources.
+func WithINI(filenames ...string) Option {
+	return func(l *Loader) {
+		for _, name := range filenames {
+			l.sources = append(l.sources, ini.New(name, ini.WithIgnoreMissing(l.ignoreMissing)))
+		}
+	}
+}
+
+// WithINIReader adds an INI source that reads from an io.Reader.
+func WithINIReader(r io.Reader) Option {
+	return func(l *Loader) {
+		l.sources = append(l.sources, ini.NewReader(r))
+	}
+}
+
+// WithJSON adds one or more JSON file sources.
+func WithJSON(filenames ...string) Option {
+	return func(l *Loader) {
+		for _, name := range filenames {
+			l.sources = append(l.sources, json.New(name, json.WithIgnoreMissing(l.ignoreMissing)))
+		}
+	}
+}
+
+// WithJSONReader adds a JSON source that reads from an io.Reader.
+func WithJSONReader(r io.Reader) Option {
+	return func(l *Loader) {
+		l.sources = append(l.sources, json.NewReader(r))
+	}
+}
+
 // WithStrictUnknown enables or disables error reporting for keys found in sources
 // that do not match any field in the target struct.
 func WithStrictUnknown(strict bool) Option {
@@ -50,6 +84,14 @@ func WithStrictUnknown(strict bool) Option {
 func WithIgnoreMissing(ignore bool) Option {
 	return func(l *Loader) {
 		l.ignoreMissing = ignore
+	}
+}
+
+// WithPrefix sets a global key prefix to be prepended to all configuration fields.
+// For example, WithPrefix("APP_") will look for "APP_PORT", "APP_DATABASE_HOST", etc.
+func WithPrefix(prefix string) Option {
+	return func(l *Loader) {
+		l.prefix = prefix
 	}
 }
 

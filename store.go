@@ -2,7 +2,7 @@
 //
 // It supports hierarchical key-value flattening, case-insensitive lookups,
 // and delimiter normalization (dot, underscore, double-underscore).
-package store
+package goconf
 
 import (
 	"maps"
@@ -18,7 +18,7 @@ type Store struct {
 }
 
 // New initializes a new configuration store, optionally populated with initial key-value maps.
-func New(initial ...map[string]any) *Store {
+func NewStore(initial ...map[string]any) *Store {
 	s := &Store{
 		values: make(map[string]any),
 	}
@@ -102,6 +102,11 @@ func flattenAndMerge(prefix string, current map[string]any, dest map[string]any)
 		}
 
 		if subMap, ok := v.(map[string]any); ok {
+			dest[fullKey] = v
+			underscored := strings.ReplaceAll(fullKey, ".", "_")
+			if _, exists := dest[underscored]; !exists {
+				dest[underscored] = v
+			}
 			flattenAndMerge(fullKey, subMap, dest)
 		} else {
 			dest[fullKey] = v
@@ -120,3 +125,4 @@ func flattenAndMerge(prefix string, current map[string]any, dest map[string]any)
 		}
 	}
 }
+

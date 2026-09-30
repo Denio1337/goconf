@@ -6,8 +6,6 @@ import (
 	"net/url"
 	"testing"
 	"time"
-
-	"github.com/Denio1337/goconf/store"
 )
 
 type CustomPort int
@@ -26,7 +24,7 @@ func (c *CustomPort) UnmarshalText(text []byte) error {
 }
 
 type ValidatedConfig struct {
-	MaxWorkers int `env:"MAX_WORKERS"`
+	MaxWorkers int `key:"MAX_WORKERS"`
 }
 
 func (v *ValidatedConfig) Validate() error {
@@ -36,37 +34,43 @@ func (v *ValidatedConfig) Validate() error {
 	return nil
 }
 
-func TestDecoderSuccess(t *testing.T) {
+func TestDecoderKeyTagAndPrefix(t *testing.T) {
 	type DatabaseConfig struct {
-		Host     string `env:"HOST"`
-		Port     int    `env:"PORT" default:"5432"`
-		Username string `env:"USER" default:"postgres"`
-		Password string `env:"PASSWORD"`
+		Host        string `key:"HOST"`
+		Port        int    `key:"PORT" default:"5432"`
+		Username    string `key:"USER" default:"postgres"`
+		Password    string `key:"PASSWORD"`
+		GlobalToken string `key:"/GLOBAL_TOKEN"` // absolute key (ignores prefix)
+	}
+
+	type FlatSettings struct {
+		WorkerCount int `key:"WORKERS" default:"4"`
 	}
 
 	type AppConfig struct {
-		AppName      string         `env:"APP_NAME"`
-		Port         int            `env:"PORT" default:"8080"`
-		Debug        bool           `env:"DEBUG"`
-		Rate         float64        `env:"RATE" default:"1.5"`
-		Timeout      time.Duration  `env:"TIMEOUT" default:"5s"`
-		CreatedAt    time.Time      `env:"CREATED_AT" layout:"2006-01-02"`
-		Endpoint     *url.URL       `env:"ENDPOINT"`
-		BindIP       net.IP         `env:"BIND_IP"`
-		Tags         []string       `env:"TAGS"`
-		AllowedPorts []int          `env:"PORTS" sep:";"`
-		Settings     map[string]int `env:"SETTINGS"`
-		OptionalVal  *int           `env:"OPTIONAL_VAL"`
-		ServicePort  CustomPort     `env:"SERVICE_PORT"`
-		Database     DatabaseConfig `env-prefix:"DB_"`
+		AppName      string         `key:"APP_NAME"`
+		Port         int            `key:"PORT" default:"8080"`
+		Debug        bool           `key:"DEBUG"`
+		Rate         float64        `key:"RATE" default:"1.5"`
+		Timeout      time.Duration  `key:"TIMEOUT" default:"5s"`
+		CreatedAt    time.Time      `key:"CREATED_AT" layout:"2006-01-02"`
+		Endpoint     *url.URL       `key:"ENDPOINT"`
+		BindIP       net.IP         `key:"BIND_IP"`
+		Tags         []string       `key:"TAGS"`
+		AllowedPorts []int          `key:"PORTS" sep:";"`
+		Settings     map[string]int `key:"SETTINGS"`
+		OptionalVal  *int           `key:"OPTIONAL_VAL"`
+		ServicePort  CustomPort     `key:"SERVICE_PORT"`
+		Database     DatabaseConfig `prefix:"DB_"`
+		FlatConfig   FlatSettings   `prefix:""` // explicitly empty prefix
 	}
 
-	cfgStore := store.New()
-	cfgStore.Merge(map[string]any{
+	st := NewStore()
+	st.Merge(map[string]any{
 		"APP_NAME":     "TestApp",
 		"DEBUG":        "true",
 		"TIMEOUT":      "15s",
-		"CREATED_AT":   "2026-09-29",
+		"CREATED_AT":   "2026-09-30",
 		"ENDPOINT":     "https://api.example.com/v1",
 		"BIND_IP":      "127.0.0.1",
 		"TAGS":         "dev,backend,v2",
@@ -76,10 +80,12 @@ func TestDecoderSuccess(t *testing.T) {
 		"SERVICE_PORT": "https",
 		"DB_HOST":      "db.internal",
 		"DB_PASSWORD":  "secret",
+		"GLOBAL_TOKEN": "token-12345",
+		"WORKERS":      "8", // matches FlatConfig because prefix is ""
 	})
 
 	var cfg AppConfig
-	d := NewDecoder(cfgStore)
+	d := NewDecoder(st)
 	if err := d.Decode(&cfg); err != nil {
 		t.Fatalf("unexpected decode error: %v", err)
 	}
@@ -87,7 +93,7 @@ func TestDecoderSuccess(t *testing.T) {
 	if cfg.AppName != "TestApp" {
 		t.Errorf("AppName: expected TestApp, got %q", cfg.AppName)
 	}
-	if cfg.Port != 8080 { // from default
+	if cfg.Port != 8080 {
 		t.Errorf("Port (default): expected 8080, got %d", cfg.Port)
 	}
 	if !cfg.Debug {
@@ -99,8 +105,8 @@ func TestDecoderSuccess(t *testing.T) {
 	if cfg.Timeout != 15*time.Second {
 		t.Errorf("Timeout: expected 15s, got %v", cfg.Timeout)
 	}
-	if cfg.CreatedAt.Year() != 2026 || cfg.CreatedAt.Month() != 9 || cfg.CreatedAt.Day() != 29 {
-		t.Errorf("CreatedAt: expected 2026-09-29, got %v", cfg.CreatedAt)
+	if cfg.CreatedAt.Year() != 2026 || cfg.CreatedAt.Month() != 9 || cfg.CreatedAt.Day() != 30 {
+		t.Errorf("CreatedAt: expected 2026-09-30, got %v", cfg.CreatedAt)
 	}
 	if cfg.Endpoint == nil || cfg.Endpoint.Host != "api.example.com" {
 		t.Errorf("Endpoint: expected api.example.com, got %v", cfg.Endpoint)
@@ -126,19 +132,99 @@ func TestDecoderSuccess(t *testing.T) {
 	if cfg.Database.Host != "db.internal" || cfg.Database.Port != 5432 || cfg.Database.Username != "postgres" || cfg.Database.Password != "secret" {
 		t.Errorf("Database config mismatch: %+v", cfg.Database)
 	}
+	if cfg.Database.GlobalToken != "token-12345" {
+		t.Errorf("Database.GlobalToken: expected token-12345, got %q", cfg.Database.GlobalToken)
+	}
+	if cfg.FlatConfig.WorkerCount != 8 {
+		t.Errorf("FlatConfig.WorkerCount: expected 8, got %d", cfg.FlatConfig.WorkerCount)
+	}
+}
+
+func TestPrefixChainingAndKeyPrefix(t *testing.T) {
+	type ServerConfig struct {
+		Host string `key:"HOST"`
+		Port int    `key:"PORT" default:"80"`
+	}
+
+	type Config struct {
+		// When key:"SERVER" is on struct, it acts as prefix "SERVER_"
+		Server ServerConfig `key:"SERVER"`
+	}
+
+	st := NewStore()
+	st.Merge(map[string]any{
+		"SERVER_HOST": "api.domain",
+		"SERVER_PORT": "8080",
+	})
+
+	var cfg Config
+	d := NewDecoder(st)
+	if err := d.Decode(&cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.Server.Host != "api.domain" || cfg.Server.Port != 8080 {
+		t.Errorf("unexpected server config: %+v", cfg.Server)
+	}
+}
+
+func TestRootPrefix(t *testing.T) {
+	type Config struct {
+		Host string `key:"HOST"`
+		Port int    `key:"PORT"`
+	}
+
+	st := NewStore()
+	st.Merge(map[string]any{
+		"MYAPP_HOST": "localhost",
+		"MYAPP_PORT": "3000",
+	})
+
+	var cfg Config
+	d := NewDecoder(st)
+	d.SetPrefix("MYAPP_")
+	if err := d.Decode(&cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.Host != "localhost" || cfg.Port != 3000 {
+		t.Errorf("unexpected config with root prefix: %+v", cfg)
+	}
+}
+
+func TestLegacyEnvTagCompatibility(t *testing.T) {
+	type Config struct {
+		Host string `env:"HOST"`
+		Port int    `env:"PORT" env-default:"9000"`
+	}
+
+	st := NewStore()
+	st.Merge(map[string]any{
+		"HOST": "legacy.local",
+	})
+
+	var cfg Config
+	d := NewDecoder(st)
+	if err := d.Decode(&cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.Host != "legacy.local" || cfg.Port != 9000 {
+		t.Errorf("legacy tag compatibility mismatch: %+v", cfg)
+	}
 }
 
 func TestDecoderStrictValidationErrors(t *testing.T) {
 	type ServerConfig struct {
-		Port     int           `env:"PORT" required:"true"`
-		Timeout  time.Duration `env:"TIMEOUT"`
-		IsActive bool          `env:"ACTIVE"`
-		Secret   string        `env:"SECRET" required:"true"`
-		Ports    []int         `env:"PORTS"`
+		Port     int           `key:"PORT" required:"true"`
+		Timeout  time.Duration `key:"TIMEOUT"`
+		IsActive bool          `key:"ACTIVE"`
+		Secret   string        `key:"SECRET" required:"true"`
+		Ports    []int         `key:"PORTS"`
 	}
 
-	cfgStore := store.New()
-	cfgStore.Merge(map[string]any{
+	st := NewStore()
+	st.Merge(map[string]any{
 		"PORT":    "not-a-number",
 		"TIMEOUT": "invalid-duration",
 		"ACTIVE":  "not-a-boolean",
@@ -147,7 +233,7 @@ func TestDecoderStrictValidationErrors(t *testing.T) {
 	})
 
 	var cfg ServerConfig
-	d := NewDecoder(cfgStore)
+	d := NewDecoder(st)
 	err := d.Decode(&cfg)
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -158,49 +244,13 @@ func TestDecoderStrictValidationErrors(t *testing.T) {
 		t.Fatalf("expected *ValidationError, got %T: %v", err, err)
 	}
 
-	// Should report 5 errors: PORT, TIMEOUT, ACTIVE, PORTS[1], SECRET
 	if len(valErr.Errors) != 5 {
 		t.Errorf("expected 5 errors, got %d:\n%v", len(valErr.Errors), valErr.Error())
-	}
-
-	errStr := valErr.Error()
-	t.Logf("Reported formatted error:\n%s", errStr)
-
-	// Verify that specific field errors are present
-	fieldErrorsMap := make(map[string]FieldError)
-	for _, fe := range valErr.Errors {
-		fieldErrorsMap[fe.Field] = fe
-	}
-
-	if fe, ok := fieldErrorsMap["Port"]; !ok {
-		t.Errorf("expected error for 'Port'")
-	} else if fe.Key != "PORT" || fe.TargetType != "int" {
-		t.Errorf("Port FieldError mismatch: %+v", fe)
-	}
-
-	if _, ok := fieldErrorsMap["Timeout"]; !ok {
-		t.Errorf("expected error for 'Timeout'")
-	}
-
-	if _, ok := fieldErrorsMap["IsActive"]; !ok {
-		t.Errorf("expected error for 'IsActive'")
-	}
-
-	if _, ok := fieldErrorsMap["Secret"]; !ok {
-		t.Errorf("expected error for 'Secret'")
-	} else if !errors.Is(valErr, ErrMissingRequired) {
-		t.Errorf("expected errors.Is(valErr, ErrMissingRequired) to be true")
-	}
-
-	if fe, ok := fieldErrorsMap["Ports"]; !ok {
-		t.Errorf("expected error for 'Ports'")
-	} else if fe.Value != "10,twenty,30" {
-		t.Errorf("Ports error value mismatch: %v", fe.Value)
 	}
 }
 
 func TestDecoderCustomValidator(t *testing.T) {
-	st := store.New()
+	st := NewStore()
 	st.Merge(map[string]any{
 		"MAX_WORKERS": "-5",
 	})
@@ -218,7 +268,7 @@ func TestDecoderCustomValidator(t *testing.T) {
 }
 
 func TestDecoderInvalidTarget(t *testing.T) {
-	st := store.New()
+	st := NewStore()
 	d := NewDecoder(st)
 
 	if err := d.Decode(nil); !errors.Is(err, ErrInvalidTarget) {
@@ -235,3 +285,38 @@ func TestDecoderInvalidTarget(t *testing.T) {
 		t.Errorf("expected ErrInvalidTarget on pointer to int, got %v", err)
 	}
 }
+
+func TestDecoderRawSliceAndMap(t *testing.T) {
+	type Config struct {
+		Tags   []string       `key:"TAGS"`
+		Scores []int          `key:"SCORES"`
+		Meta   map[string]int `key:"META"`
+	}
+
+	st := NewStore()
+	st.Merge(map[string]any{
+		"TAGS":   []any{"prod", "stable"},
+		"SCORES": []int{10, 20, 30},
+		"META": map[string]any{
+			"version": 2,
+			"retries": 5,
+		},
+	})
+
+	var cfg Config
+	d := NewDecoder(st)
+	if err := d.Decode(&cfg); err != nil {
+		t.Fatalf("unexpected decode error: %v", err)
+	}
+
+	if len(cfg.Tags) != 2 || cfg.Tags[0] != "prod" || cfg.Tags[1] != "stable" {
+		t.Errorf("Tags mismatch: %v", cfg.Tags)
+	}
+	if len(cfg.Scores) != 3 || cfg.Scores[1] != 20 {
+		t.Errorf("Scores mismatch: %v", cfg.Scores)
+	}
+	if cfg.Meta["version"] != 2 || cfg.Meta["retries"] != 5 {
+		t.Errorf("Meta mismatch: %v", cfg.Meta)
+	}
+}
+

@@ -10,8 +10,6 @@ import (
 	"strings"
 	"time"
 	"unicode"
-
-	"github.com/Denio1337/goconf/store"
 )
 
 // Validator is an optional interface that structs or fields can implement
@@ -22,17 +20,23 @@ type Validator interface {
 
 // Decoder decodes configuration from a Store into a target struct with strict schema validation.
 type Decoder struct {
-	store         *store.Store
+	store         *Store
+	prefix        string
 	strictUnknown bool
 	consumedKeys  map[string]bool
 }
 
 // NewDecoder creates a new Decoder configured with the provided Store.
-func NewDecoder(store *store.Store) *Decoder {
+func NewDecoder(store *Store) *Decoder {
 	return &Decoder{
 		store:        store,
 		consumedKeys: make(map[string]bool),
 	}
+}
+
+// SetPrefix sets a global key prefix to be prepended to all struct fields.
+func (d *Decoder) SetPrefix(prefix string) {
+	d.prefix = prefix
 }
 
 // SetStrictUnknown enables or disables error reporting for keys present in the store but not in the struct.
@@ -58,7 +62,7 @@ func (d *Decoder) Decode(target any) error {
 	}
 
 	valErr := &ValidationError{}
-	d.decodeStruct(elem, "", "", valErr)
+	d.decodeStruct(elem, d.prefix, "", valErr)
 
 	// Check if the root struct itself implements Validator
 	d.checkValidator(val, "", valErr)
@@ -101,13 +105,28 @@ func (d *Decoder) decodeStruct(v reflect.Value, prefix string, structPath string
 		// Handle embedded or nested configuration struct
 		if isConfigStruct(field.Type) {
 			childPrefix := prefix
-			if structPrefix := field.Tag.Get("env-prefix"); structPrefix != "" {
+
+			// Check prefix tag: `prefix:"..."`
+			if structPrefix, ok := field.Tag.Lookup(TagPrefix); ok {
 				childPrefix = prefix + structPrefix
-			} else if structPrefix := field.Tag.Get("prefix"); structPrefix != "" {
-				childPrefix = prefix + structPrefix
+			} else if keyTag, ok := field.Tag.Lookup(TagKey); ok && keyTag != "" {
+				// If `key:"DB"` is specified on the nested struct field, use it as prefix
+				keyParts := strings.Split(keyTag, ",")
+				baseKey := strings.TrimSpace(keyParts[0])
+				if baseKey != "" {
+					if !strings.HasSuffix(baseKey, "_") && !strings.HasSuffix(baseKey, ".") {
+						baseKey += "_"
+					}
+					childPrefix = prefix + baseKey
+				}
 			} else if !field.Anonymous {
 				childPrefix = prefix + toScreamingSnake(field.Name) + "_"
 			}
+
+			// Mark parent container / prefix keys as consumed so strictUnknown doesn't flag them
+			cleanPrefix := strings.TrimRight(childPrefix, "_.")
+			d.markConsumed(cleanPrefix)
+			d.markConsumed(field.Name)
 
 			if field.Type.Kind() == reflect.Pointer {
 				if fieldVal.IsNil() {
@@ -131,22 +150,29 @@ func (d *Decoder) decodeStruct(v reflect.Value, prefix string, structPath string
 		// Look up value in store
 		rawVal, matchedKey, found := d.store.Get(candidates...)
 		if found {
-			d.consumedKeys[matchedKey] = true
-			d.consumedKeys[strings.ToUpper(matchedKey)] = true
+			d.markConsumed(matchedKey)
+			for _, c := range candidates {
+				d.markConsumed(c)
+			}
 		}
 
 		// Check for missing value
-		var valStr string
+		var rawValue any
 		hasValue := false
 
 		if found && rawVal != nil {
-			valStr = fmt.Sprint(rawVal)
-			hasValue = strings.TrimSpace(valStr) != ""
+			rawValue = rawVal
+			switch rv := rawVal.(type) {
+			case string:
+				hasValue = strings.TrimSpace(rv) != ""
+			default:
+				hasValue = true
+			}
 		}
 
 		// Fallback to default if empty or not found
 		if !hasValue && tagInfo.hasDefault {
-			valStr = tagInfo.defaultValue
+			rawValue = tagInfo.defaultValue
 			hasValue = true
 		}
 
@@ -177,11 +203,11 @@ func (d *Decoder) decodeStruct(v reflect.Value, prefix string, structPath string
 			primaryKey = tagInfo.primaryKey
 		}
 
-		if err := d.decodeField(fieldVal, valStr, tagInfo); err != nil {
+		if err := d.decodeFieldValue(fieldVal, rawValue, tagInfo); err != nil {
 			valErr.Add(FieldError{
 				Field:      fieldPath,
 				Key:        primaryKey,
-				Value:      valStr,
+				Value:      fmt.Sprint(rawValue),
 				TargetType: field.Type.String(),
 				Err:        err,
 			})
@@ -207,11 +233,8 @@ func parseFieldTag(field reflect.StructField) fieldTagInfo {
 		separator: ",",
 	}
 
-	// 1. Check env tag
-	tag := field.Tag.Get("env")
-	if tag == "" {
-		tag = field.Tag.Get("config")
-	}
+	// 1. Check primary TagKey ("key"), then fallback to legacy ("env", "config")
+	tag := field.Tag.Get(TagKey)
 
 	if tag != "" {
 		parts := strings.Split(tag, ",")
@@ -230,28 +253,23 @@ func parseFieldTag(field reflect.StructField) fieldTagInfo {
 	}
 
 	// 2. Check explicit default tag
-	if def, ok := field.Tag.Lookup("default"); ok {
-		info.hasDefault = true
-		info.defaultValue = def
-	} else if def, ok := field.Tag.Lookup("env-default"); ok {
+	if def, ok := field.Tag.Lookup(TagDefault); ok {
 		info.hasDefault = true
 		info.defaultValue = def
 	}
 
 	// 3. Check explicit required tag
-	if req, ok := field.Tag.Lookup("required"); ok {
-		info.required = strings.EqualFold(req, "true") || req == "1"
-	} else if req, ok := field.Tag.Lookup("env-required"); ok {
+	if req, ok := field.Tag.Lookup(TagRequired); ok {
 		info.required = strings.EqualFold(req, "true") || req == "1"
 	}
 
 	// 4. Separator tag for slices
-	if sep := field.Tag.Get("sep"); sep != "" {
+	if sep := field.Tag.Get(TagSep); sep != "" {
 		info.separator = sep
 	}
 
 	// 5. Layout tag for time.Time
-	if layout := field.Tag.Get("layout"); layout != "" {
+	if layout := field.Tag.Get(TagLayout); layout != "" {
 		info.layout = layout
 	}
 
@@ -262,21 +280,30 @@ func (d *Decoder) buildCandidateKeys(tagInfo fieldTagInfo, prefix, fieldName str
 	var candidates []string
 
 	if tagInfo.primaryKey != "" {
-		// If key starts with /, treat as absolute (no prefix)
+		// Absolute key (starts with '/'): ignore all parent prefixes!
 		if strings.HasPrefix(tagInfo.primaryKey, "/") {
-			candidates = append(candidates, strings.TrimPrefix(tagInfo.primaryKey, "/"))
-		} else {
-			if prefix != "" {
-				candidates = append(candidates, prefix+tagInfo.primaryKey)
-			}
-			candidates = append(candidates, tagInfo.primaryKey)
+			absKey := strings.TrimPrefix(tagInfo.primaryKey, "/")
+			return []string{absKey}
 		}
+
+		if prefix != "" {
+			candidates = append(candidates, prefix+tagInfo.primaryKey)
+			if !strings.HasSuffix(prefix, "_") && !strings.HasSuffix(prefix, ".") {
+				candidates = append(candidates, prefix+"_"+tagInfo.primaryKey)
+				candidates = append(candidates, prefix+"."+tagInfo.primaryKey)
+			}
+		}
+		// Also allow key without prefix as fallback
+		candidates = append(candidates, tagInfo.primaryKey)
 	}
 
-	// Default naming conventions
+	// Default naming conventions derived from field name
 	snake := toScreamingSnake(fieldName)
 	if prefix != "" {
 		candidates = append(candidates, prefix+snake)
+		if !strings.HasSuffix(prefix, "_") && !strings.HasSuffix(prefix, ".") {
+			candidates = append(candidates, prefix+"_"+snake)
+		}
 		candidates = append(candidates, prefix+fieldName)
 	} else {
 		candidates = append(candidates, snake)
@@ -286,14 +313,92 @@ func (d *Decoder) buildCandidateKeys(tagInfo fieldTagInfo, prefix, fieldName str
 	// Additional lower/dot forms
 	lowerSnake := strings.ToLower(snake)
 	if prefix != "" {
-		lowerPrefix := strings.ToLower(strings.TrimRight(prefix, "_."))
+		cleanPrefix := strings.TrimRight(prefix, "_.")
+		lowerPrefix := strings.ToLower(cleanPrefix)
 		candidates = append(candidates, lowerPrefix+"."+lowerSnake)
 		candidates = append(candidates, lowerPrefix+"_"+lowerSnake)
+		candidates = append(candidates, cleanPrefix+"__"+snake)
 	} else {
 		candidates = append(candidates, lowerSnake)
 	}
 
 	return candidates
+}
+
+func (d *Decoder) markConsumed(key string) {
+	if key == "" {
+		return
+	}
+	d.consumedKeys[key] = true
+	d.consumedKeys[strings.ToUpper(key)] = true
+	d.consumedKeys[strings.ToLower(key)] = true
+	d.consumedKeys[strings.ReplaceAll(key, ".", "_")] = true
+	d.consumedKeys[strings.ReplaceAll(key, ".", "__")] = true
+	d.consumedKeys[strings.ToUpper(strings.ReplaceAll(key, ".", "_"))] = true
+	d.consumedKeys[strings.ToLower(strings.ReplaceAll(key, ".", "_"))] = true
+}
+
+func (d *Decoder) decodeFieldValue(v reflect.Value, raw any, tagInfo fieldTagInfo) error {
+	if raw == nil {
+		return nil
+	}
+
+	// 1. If target is slice
+	if v.Kind() == reflect.Slice {
+		rawVal := reflect.ValueOf(raw)
+		if rawVal.Kind() == reflect.Slice {
+			slice := reflect.MakeSlice(v.Type(), rawVal.Len(), rawVal.Len())
+			for i := 0; i < rawVal.Len(); i++ {
+				elem := slice.Index(i)
+				item := rawVal.Index(i).Interface()
+				if err := d.decodeFieldValue(elem, item, tagInfo); err != nil {
+					return fmt.Errorf("element at index [%d]: %w", i, err)
+				}
+			}
+			v.Set(slice)
+			return nil
+		}
+		return d.decodeSlice(v, fmt.Sprint(raw), tagInfo)
+	}
+
+	// 2. If target is map
+	if v.Kind() == reflect.Map {
+		rawVal := reflect.ValueOf(raw)
+		if rawVal.Kind() == reflect.Map {
+			mapVal := reflect.MakeMapWithSize(v.Type(), rawVal.Len())
+			keyType := v.Type().Key()
+			valType := v.Type().Elem()
+			for _, k := range rawVal.MapKeys() {
+				newKey := reflect.New(keyType).Elem()
+				newElem := reflect.New(valType).Elem()
+
+				if err := d.decodeFieldValue(newKey, k.Interface(), tagInfo); err != nil {
+					return fmt.Errorf("map key %v: %w", k, err)
+				}
+				if err := d.decodeFieldValue(newElem, rawVal.MapIndex(k).Interface(), tagInfo); err != nil {
+					return fmt.Errorf("map key %v value: %w", k, err)
+				}
+				mapVal.SetMapIndex(newKey, newElem)
+			}
+			v.Set(mapVal)
+			return nil
+		}
+		return d.decodeMap(v, fmt.Sprint(raw), tagInfo)
+	}
+
+	// 3. Pointer types
+	if v.Kind() == reflect.Pointer {
+		elemType := v.Type().Elem()
+		elemVal := reflect.New(elemType).Elem()
+		if err := d.decodeFieldValue(elemVal, raw, tagInfo); err != nil {
+			return err
+		}
+		v.Set(elemVal.Addr())
+		return nil
+	}
+
+	// 4. Fallback to scalar / primitive / unmarshaler types via string conversion
+	return d.decodeField(v, fmt.Sprint(raw), tagInfo)
 }
 
 func (d *Decoder) decodeField(v reflect.Value, raw string, tagInfo fieldTagInfo) error {
@@ -413,6 +518,15 @@ func (d *Decoder) decodeSlice(v reflect.Value, raw string, tagInfo fieldTagInfo)
 		return nil
 	}
 
+	// Support array brackets like `["a", "b"]` or `[a, b]`
+	if strings.HasPrefix(raw, "[") && strings.HasSuffix(raw, "]") {
+		raw = strings.TrimSpace(raw[1 : len(raw)-1])
+		if raw == "" {
+			v.Set(reflect.MakeSlice(v.Type(), 0, 0))
+			return nil
+		}
+	}
+
 	sep := tagInfo.separator
 	if sep == "" {
 		sep = ","
@@ -424,7 +538,10 @@ func (d *Decoder) decodeSlice(v reflect.Value, raw string, tagInfo fieldTagInfo)
 	for i, part := range parts {
 		elem := slice.Index(i)
 		token := strings.TrimSpace(part)
-		if err := d.decodeField(elem, token, tagInfo); err != nil {
+		if len(token) >= 2 && ((token[0] == '"' && token[len(token)-1] == '"') || (token[0] == '\'' && token[len(token)-1] == '\'')) {
+			token = token[1 : len(token)-1]
+		}
+		if err := d.decodeFieldValue(elem, token, tagInfo); err != nil {
 			return fmt.Errorf("element at index [%d]: %w", i, err)
 		}
 	}
@@ -466,12 +583,12 @@ func (d *Decoder) decodeMap(v reflect.Value, raw string, tagInfo fieldTagInfo) e
 		}
 
 		keyVal := reflect.New(keyType).Elem()
-		if err := d.decodeField(keyVal, kStr, tagInfo); err != nil {
+		if err := d.decodeFieldValue(keyVal, kStr, tagInfo); err != nil {
 			return fmt.Errorf("map key %q: %w", kStr, err)
 		}
 
 		elemVal := reflect.New(valType).Elem()
-		if err := d.decodeField(elemVal, vStr, tagInfo); err != nil {
+		if err := d.decodeFieldValue(elemVal, vStr, tagInfo); err != nil {
 			return fmt.Errorf("map value for key %q: %w", kStr, err)
 		}
 

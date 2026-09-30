@@ -1,0 +1,21 @@
+{
+  "app_name": "JSONServiceApp",
+  "debug": false,
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8080,
+    "read_timeout": "15s",
+    "write_timeout": "30s"
+  },
+  "database": {
+    "host": "db.json.internal",
+    "port": 5432,
+    "user": "appuser",
+    "password": "json-secret-password",
+    "max_conns": 30
+  },
+  "allowed_origins": [
+    "https://frontend.domain",
+    "https://admin.domain"
+  ]
+}

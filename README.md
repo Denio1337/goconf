@@ -15,13 +15,11 @@
 - 🛡️ **Строгая схема и контроль типов**: Никаких скрытых ошибок преобразования типов во время работы приложения. Если поле ожидает `int`, а передано `"abc"`, библиотека выдаст подробную ошибку.
 - 📋 **Агрегация ошибок (Multi-Error Reporting)**: Библиотека не прерывает работу на первой ошибке, а собирает все невалидные поля конфигурации в единый структурированный отчёт, где указан путь в структуре, ключ источника, переданное значение и причина ошибки.
 - 🔌 **Расширяемая архитектура источников (`Source`)**: Возможность комбинировать и переопределять конфигурации из нескольких источников с разным приоритетом.
-- 📝 **Полноценный парсер `.env`**:
-  - Одинарные (`'...'`) и двойные (`"..."`) кавычки
-  - Многострочные значения (сертификаты, RSA-ключи и т.п.)
-  - Экранирование (`\n`, `\t`, `\"`, `\\`)
-  - Комментарии (`#`) как на отдельных строках, так и inline
-  - Поддержка префикса `export `
-  - Интерполяция переменных (`${HOST}:${PORT}`, `$VAR`, `${VAR:-default}`)
+- 📁 **Встроенные провайдеры форматов**:
+  - **`.env`**: кавычки, многострочные значения, экранирование, inline-комментарии, интерполяция `${VAR:-default}`.
+  - **`.ini`**: секции `[section]`, подсекции `[section.sub]`, комментарии `;` и `#`, многоуровневый мапинг.
+  - **`.json`**: иерархические JSON-документы, сохранение точности чисел (`json.Number`), вложенные объекты.
+  - **`mapsource`**: in-memory структуры для программных настроек и тестов.
 - 🧩 **Богатая поддержка типов Go**:
   - Примитивные типы (`int*`, `uint*`, `float*`, `bool`, `string`)
   - Временные интервалы (`time.Duration`, например `15s`, `5m`)
@@ -79,23 +77,23 @@ import (
 )
 
 type ServerConfig struct {
-	Host    string        `env:"HOST" default:"localhost"`
-	Port    int           `env:"PORT" default:"8080"`
-	Timeout time.Duration `env:"TIMEOUT" default:"10s"`
+	Host    string        `key:"HOST" default:"localhost"`
+	Port    int           `key:"PORT" default:"8080"`
+	Timeout time.Duration `key:"TIMEOUT" default:"10s"`
 }
 
 type DatabaseConfig struct {
-	Host     string `env:"HOST"`
-	Port     int    `env:"PORT" default:"5432"`
-	Password string `env:"PASSWORD" required:"true"`
+	Host     string `key:"HOST"`
+	Port     int    `key:"PORT" default:"5432"`
+	Password string `key:"PASSWORD" required:"true"`
 }
 
 type Config struct {
-	AppName     string         `env:"APP_NAME"`
-	Environment string         `env:"ENVIRONMENT" default:"development"`
-	Debug       bool           `env:"DEBUG"`
-	Server      ServerConfig   `env-prefix:"SERVER_"`
-	Database    DatabaseConfig `env-prefix:"DATABASE_"`
+	AppName     string         `key:"APP_NAME"`
+	Environment string         `key:"ENVIRONMENT" default:"development"`
+	Debug       bool           `key:"DEBUG"`
+	Server      ServerConfig   `prefix:"SERVER_"`
+	Database    DatabaseConfig `prefix:"DATABASE_"`
 }
 
 func main() {
@@ -114,21 +112,32 @@ func main() {
 
 ---
 
-## Теги структуры
+## Теги структуры и константы
 
-| Тег | Описание | Пример |
-|---|---|---|
-| `env` / `config` | Имя ключа в источнике конфигурации | `env:"PORT"` |
-| `default` / `env-default` | Значение по умолчанию, если ключ отсутствует или пуст | `default:"8080"` |
-| `required` / `env-required` | Обязательное поле. Возвращает ошибку, если не задано | `required:"true"` |
-| `env-prefix` / `prefix` | Префикс ключей для вложенной структуры | `env-prefix:"DB_"` |
-| `sep` | Разделитель для срезов и словарей (по умолчанию `,`) | `sep:";"` |
-| `layout` | Формат времени для парсинга `time.Time` | `layout:"2006-01-02"` |
+Все теги зафиксированы в коде в виде экспортируемых констант (файл `tags.go`):
 
-Также поддерживается краткая запись опций через запятую в теге `env`:
+| Константа | Имя тега | Описание | Пример |
+|---|---|---|---|
+| `goconf.TagKey` | `key` | Имя ключа в источнике конфигурации | `key:"PORT"` |
+| `goconf.TagDefault` | `default` | Значение по умолчанию, если ключ отсутствует или пуст | `default:"8080"` |
+| `goconf.TagRequired` | `required` | Обязательное поле. Возвращает ошибку, если не задано | `required:"true"` |
+| `goconf.TagPrefix` | `prefix` | Префикс ключей для вложенной структуры | `prefix:"DB_"` |
+| `goconf.TagSep` | `sep` | Разделитель для срезов и словарей (по умолчанию `,`) | `sep:";"` |
+| `goconf.TagLayout` | `layout` | Формат времени для парсинга `time.Time` | `layout:"2006-01-02"` |
+
+> Также поддерживаются legacy-псевдонимы (`env`, `config`, `env-prefix`, `env-default`, `env-required`) для обратной совместимости.
+
+### Особенности работы с `prefix`:
+1. **Явный префикс**: `prefix:"DB_"` добавляет `DB_` ко всем дочерним полям вложенной структуры (`HOST` -> `DB_HOST`).
+2. **Использование `key` как префикса**: если на вложенную структуру повесить `key:"DATABASE"`, она автоматически сформирует префикс `DATABASE_`.
+3. **Отключение автопрефикса**: `prefix:""` явно отключает автопрефикс у именованной структуры, делая её поля плоскими.
+4. **Абсолютные ключи**: если дочернее поле начинается со слэша `/` (например, `key:"/GLOBAL_SECRET"`), оно **игнорирует любые префиксы** родителей.
+5. **Глобальный префикс**: опция `goconf.WithPrefix("APP_")` добавляет префикс ко всем ключам корневой структуры.
+
+### Краткая запись опций в теге `key`:
 ```go
 type ServerConfig struct {
-    Port int `env:"PORT,required,default=8080"`
+    Port int `key:"PORT,required,default=8080"`
 }
 ```
 
@@ -189,12 +198,51 @@ func (s *JSONSource) Load(ctx context.Context) (map[string]any, error) {
 }
 ```
 
+### Использование файлов INI:
+
+```ini
+# config.ini
+app_name = "My Application"
+
+[server]
+host = 0.0.0.0
+port = 8080
+timeout = 30s
+
+[database]
+host = localhost
+port = 5432
+password = "secret"
+```
+
+### Использование файлов JSON:
+
+```json
+{
+  "app_name": "My Application",
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8080
+  },
+  "database": {
+    "host": "localhost",
+    "port": 5432,
+    "password": "secret"
+  }
+}
+```
+
+```go
+err := goconf.Load(&cfg, goconf.WithJSON("config.json"))
+```
+
 ### Использование нескольких источников с приоритетами:
 
 ```go
 err := goconf.Load(&cfg,
-    goconf.WithDotEnv(".env"),                  // Базовые значения из .env
-    goconf.WithSource(NewJSONSource("cfg.json")),// Переопределения из JSON
+    goconf.WithDotEnv(".env"),    // 1. Базовые значения из .env
+    goconf.WithINI("config.ini"), // 2. Переопределения из INI
+    goconf.WithJSON("local.json"),// 3. Локальные переопределения из JSON
 )
 ```
 Источники применяются по порядку: более поздние перезаписывают совпавшие ключи более ранних.
@@ -207,7 +255,7 @@ err := goconf.Load(&cfg,
 
 ```go
 type ServerConfig struct {
-    Port int `env:"PORT" default:"8080"`
+    Port int `key:"PORT" default:"8080"`
 }
 
 func (s *ServerConfig) Validate() error {
