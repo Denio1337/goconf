@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	"github.com/Denio1337/goconf/source/dotenv"
+	"github.com/Denio1337/goconf/source/env"
 )
 
 // Loader manages sources, options, and decoding configuration into target structs.
@@ -51,9 +52,13 @@ func NewLoader(opts ...Option) *Loader {
 // target must be a non-nil pointer to a struct.
 func (l *Loader) Load(target any) error {
 	sources := l.sources
-	// Default to .env if no sources were explicitly added
+	// Default: if no sources were explicitly added, load .env (ignoring if missing)
+	// followed by OS environment variables, giving primary priority to environment variables.
 	if len(sources) == 0 {
-		sources = []Source{dotenv.New(".env", dotenv.WithIgnoreMissing(l.ignoreMissing))}
+		sources = []Source{
+			dotenv.New(".env", dotenv.WithIgnoreMissing(true)),
+			env.New(),
+		}
 	}
 
 	st := NewStore()
@@ -75,6 +80,8 @@ func (l *Loader) Load(target any) error {
 
 // Load is a top-level convenience function that initializes a Loader, applies options,
 // and decodes configuration from sources into target.
+// When called without explicit sources, it loads .env (ignoring missing file by default)
+// and OS environment variables, giving primary priority to environment variables.
 // target must be a non-nil pointer to a struct.
 //
 // Example:

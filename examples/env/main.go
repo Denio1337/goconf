@@ -35,8 +35,9 @@ type AppConfig struct {
 func main() {
 	var cfg AppConfig
 
-	// Load configuration from .env file
-	if err := goconf.Load(&cfg, goconf.WithDotEnv(".env")); err != nil {
+	// Load configuration: checks OS environment variables with top priority,
+	// falling back to .env file if present.
+	if err := goconf.Load(&cfg); err != nil {
 		log.Fatalf("Configuration error: %v", err)
 	}
 

@@ -356,3 +356,68 @@ func TestLoadWithEnvOverride(t *testing.T) {
 		t.Errorf("expected Debug=false (from .env), got %t", cfg.Debug)
 	}
 }
+
+func TestLoadDefaultBehavior(t *testing.T) {
+	// 1. When no .env exists and only OS env is provided
+	os.Setenv("PORT", "7777")
+	os.Setenv("APP_NAME", "DefaultEnvApp")
+	defer func() {
+		os.Unsetenv("PORT")
+		os.Unsetenv("APP_NAME")
+	}()
+
+	var cfg struct {
+		Port    int    `key:"PORT"`
+		AppName string `key:"APP_NAME"`
+		Host    string `key:"HOST" default:"localhost"`
+	}
+
+	// Calling Load with only &cfg (no options passed)
+	err := goconf.Load(&cfg)
+	if err != nil {
+		t.Fatalf("unexpected error when loading defaults with only OS env: %v", err)
+	}
+
+	if cfg.Port != 7777 {
+		t.Errorf("Port: expected 7777, got %d", cfg.Port)
+	}
+	if cfg.AppName != "DefaultEnvApp" {
+		t.Errorf("AppName: expected DefaultEnvApp, got %q", cfg.AppName)
+	}
+	if cfg.Host != "localhost" {
+		t.Errorf("Host: expected localhost, got %q", cfg.Host)
+	}
+}
+
+func TestLoadDefaultBehavior_EnvOverridesDotEnv(t *testing.T) {
+	// Create temporary .env in current directory
+	envContent := []byte("PORT=8080\nDB_NAME=dotenv_db\n")
+	if err := os.WriteFile(".env", envContent, 0644); err != nil {
+		t.Fatalf("failed to create temp .env: %v", err)
+	}
+	defer os.Remove(".env")
+
+	// Set OS environment variable that should override .env
+	os.Setenv("PORT", "9999")
+	defer os.Unsetenv("PORT")
+
+	var cfg struct {
+		Port   int    `key:"PORT"`
+		DBName string `key:"DB_NAME"`
+	}
+
+	// Call Load with only &cfg
+	err := goconf.Load(&cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// OS env has primary priority and must override .env
+	if cfg.Port != 9999 {
+		t.Errorf("Port: expected 9999 (from OS env), got %d", cfg.Port)
+	}
+	// DBName comes from .env since it wasn't in OS env
+	if cfg.DBName != "dotenv_db" {
+		t.Errorf("DBName: expected dotenv_db (from .env), got %q", cfg.DBName)
+	}
+}

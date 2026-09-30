@@ -101,8 +101,9 @@ type Config struct {
 func main() {
 	var cfg Config
 
-	// Load configuration from .env file
-	if err := goconf.Load(&cfg, goconf.WithDotEnv(".env")); err != nil {
+	// By default, goconf checks OS environment variables first, falling back to .env
+	// (missing .env is automatically ignored)
+	if err := goconf.Load(&cfg); err != nil {
 		log.Fatalf("Configuration error: %v", err)
 	}
 
