@@ -106,39 +106,20 @@ func (d *Decoder) decodeStruct(v reflect.Value, prefix string, structPath string
 		if isConfigStruct(field.Type) {
 			childPrefix := prefix
 
-			// Check prefix tag: `prefix:"..."` or legacy `env-prefix:"..."`, `config-prefix:"..."`
-			var structPrefix string
-			var hasPrefixTag bool
-			for _, pTag := range []string{TagPrefix, TagLegacyEnvPrefix, TagLegacyConfigPrefix} {
-				if sp, ok := field.Tag.Lookup(pTag); ok {
-					structPrefix = sp
-					hasPrefixTag = true
-					break
-				}
-			}
-
-			if hasPrefixTag {
+			// Check prefix tag: `prefix:"..."`
+			if structPrefix, ok := field.Tag.Lookup(TagPrefix); ok {
 				childPrefix = prefix + structPrefix
-			} else {
-				var keyTag string
-				for _, kTag := range []string{TagKey, TagLegacyEnv, TagLegacyConfig} {
-					if kt, ok := field.Tag.Lookup(kTag); ok && kt != "" {
-						keyTag = kt
-						break
+			} else if keyTag, ok := field.Tag.Lookup(TagKey); ok && keyTag != "" {
+				keyParts := strings.Split(keyTag, ",")
+				baseKey := strings.TrimSpace(keyParts[0])
+				if baseKey != "" {
+					if !strings.HasSuffix(baseKey, "_") && !strings.HasSuffix(baseKey, ".") {
+						baseKey += "_"
 					}
+					childPrefix = prefix + baseKey
 				}
-				if keyTag != "" {
-					keyParts := strings.Split(keyTag, ",")
-					baseKey := strings.TrimSpace(keyParts[0])
-					if baseKey != "" {
-						if !strings.HasSuffix(baseKey, "_") && !strings.HasSuffix(baseKey, ".") {
-							baseKey += "_"
-						}
-						childPrefix = prefix + baseKey
-					}
-				} else if !field.Anonymous {
-					childPrefix = prefix + toScreamingSnake(field.Name) + "_"
-				}
+			} else if !field.Anonymous {
+				childPrefix = prefix + toScreamingSnake(field.Name) + "_"
 			}
 
 			// Mark parent container / prefix keys as consumed so strictUnknown doesn't flag them
@@ -251,15 +232,8 @@ func parseFieldTag(field reflect.StructField) fieldTagInfo {
 		separator: ",",
 	}
 
-	// 1. Check primary TagKey ("key"), then fallback to legacy ("env", "config")
-	var tag string
-	for _, k := range []string{TagKey, TagLegacyEnv, TagLegacyConfig} {
-		if t := field.Tag.Get(k); t != "" {
-			tag = t
-			break
-		}
-	}
-
+	// 1. Check TagKey ("key")
+	tag := field.Tag.Get(TagKey)
 	if tag != "" {
 		parts := strings.Split(tag, ",")
 		if len(parts) > 0 && parts[0] != "" {
@@ -277,20 +251,14 @@ func parseFieldTag(field reflect.StructField) fieldTagInfo {
 	}
 
 	// 2. Check explicit default tag
-	for _, dTag := range []string{TagDefault, TagLegacyEnvDefault, TagLegacyConfigDefault} {
-		if def, ok := field.Tag.Lookup(dTag); ok {
-			info.hasDefault = true
-			info.defaultValue = def
-			break
-		}
+	if def, ok := field.Tag.Lookup(TagDefault); ok {
+		info.hasDefault = true
+		info.defaultValue = def
 	}
 
 	// 3. Check explicit required tag
-	for _, rTag := range []string{TagRequired, TagLegacyEnvRequired, TagLegacyConfigRequired} {
-		if req, ok := field.Tag.Lookup(rTag); ok {
-			info.required = strings.EqualFold(req, "true") || req == "1"
-			break
-		}
+	if req, ok := field.Tag.Lookup(TagRequired); ok {
+		info.required = strings.EqualFold(req, "true") || req == "1"
 	}
 
 	// 4. Separator tag for slices

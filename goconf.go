@@ -80,7 +80,7 @@ func (l *Loader) Load(target any) error {
 // Example:
 //
 //	type Config struct {
-//	    Port int `env:"PORT" default:"8080"`
+//	    Port int `key:"PORT" default:"8080"`
 //	}
 //	var cfg Config
 //	if err := goconf.Load(&cfg); err != nil {

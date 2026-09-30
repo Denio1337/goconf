@@ -192,15 +192,15 @@ func TestRootPrefix(t *testing.T) {
 	}
 }
 
-func TestLegacyEnvTagCompatibility(t *testing.T) {
+func TestKeyTagInlineOptions(t *testing.T) {
 	type Config struct {
-		Host string `env:"HOST"`
-		Port int    `env:"PORT" env-default:"9000"`
+		Host string `key:"HOST"`
+		Port int    `key:"PORT,default=9000"`
 	}
 
 	st := NewStore()
 	st.Merge(map[string]any{
-		"HOST": "legacy.local",
+		"HOST": "api.local",
 	})
 
 	var cfg Config
@@ -209,8 +209,8 @@ func TestLegacyEnvTagCompatibility(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if cfg.Host != "legacy.local" || cfg.Port != 9000 {
-		t.Errorf("legacy tag compatibility mismatch: %+v", cfg)
+	if cfg.Host != "api.local" || cfg.Port != 9000 {
+		t.Errorf("key tag inline options mismatch: %+v", cfg)
 	}
 }
 
