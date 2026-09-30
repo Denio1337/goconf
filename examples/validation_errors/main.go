@@ -9,14 +9,14 @@ import (
 )
 
 type Config struct {
-	Port       int           `env:"PORT" required:"true"`
-	Timeout    time.Duration `env:"TIMEOUT" default:"5s"`
-	MaxRetries int           `env:"MAX_RETRIES" default:"3"`
-	Debug      bool          `env:"DEBUG"`
+	Port       int           `required:"true"`
+	Timeout    time.Duration `default:"5s"`
+	MaxRetries int           `default:"3"`
+	Debug      bool
 	Database   struct {
-		Host     string `env:"HOST" default:"localhost"`
-		Password string `env:"PASSWORD" required:"true"`
-	} `env-prefix:"DATABASE_"`
+		Host     string `default:"localhost"`
+		Password string `required:"true"`
+	} `prefix:"DATABASE_"`
 }
 
 func main() {
