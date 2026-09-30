@@ -19,8 +19,19 @@ go get github.com/Denio1337/goconf
 
 ### Usage
 
-```go
+Create a `.env` file (or provide environment variables in your deployment environment):
 
+```env
+APP_NAME=MyService
+SERVER_PORT=8080
+SERVER_READ_TIMEOUT=10s
+DATABASE_HOST=postgres.internal
+DATABASE_PASSWORD=super-secret-production-password
+```
+
+Define your configuration struct and load it:
+
+```go
 package main
 
 import (
@@ -31,27 +42,71 @@ import (
 	"github.com/Denio1337/goconf"
 )
 
+// ServerConfig demonstrates nested structures and custom validation via Validator.
+// Note: `key` tags are completely optional! Names like SERVER_READ_TIMEOUT are automatically inferred.
 type ServerConfig struct {
 	Host         string        `default:"localhost"`
 	Port         int           `default:"8080"`
 	ReadTimeout  time.Duration `default:"5s"`
 	WriteTimeout time.Duration `default:"10s"`
-    ApiKey goconf.Secret[string] `required`
+}
+
+// Validate implements goconf.Validator to enforce domain constraints after decoding.
+func (s *ServerConfig) Validate() error {
+	if s.Port < 1024 || s.Port > 65535 {
+		return fmt.Errorf("server port %d must be in range 1024-65535", s.Port)
+	}
+	return nil
+}
+
+type DatabaseConfig struct {
+	Host     string                `default:"localhost"`
+	Port     int                   `default:"5432"`
+	User     string                `default:"postgres"`
+	Password goconf.Secret[string] `required:"true"` // Protected against accidental leaks
+}
+
+type Config struct {
+	AppName  string `default:"MyService"`
+	Debug    bool   `default:"false"`
+	Server   ServerConfig
+	Database DatabaseConfig
 }
 
 func main() {
-	var cfg ServerConfig
+	var cfg Config
 
 	// Load configuration: checks OS environment variables with top priority,
-	// falling back to .env file if present.
+	// falling back to .env (missing .env is automatically ignored).
 	if err := goconf.Load(&cfg); err != nil {
 		log.Fatalf("Configuration error: %v", err)
 	}
 
-	fmt.Printf("Server listening on %s:%d (ReadTimeout: %v)\n", cfg.Server.Host, cfg.Server.Port, cfg.Server.ReadTimeout)
+	fmt.Println("--- Configuration Loaded Successfully ---")
+	fmt.Printf("App: %s (Debug: %t)\n", cfg.AppName, cfg.Debug)
+	fmt.Printf("Server: %s:%d (ReadTimeout: %v)\n", cfg.Server.Host, cfg.Server.Port, cfg.Server.ReadTimeout)
+	fmt.Printf("Database: %s@%s:%d\n\n", cfg.Database.User, cfg.Database.Host, cfg.Database.Port)
+
+	// Safe printing demonstration with goconf.Secret[T]:
+	fmt.Println("--- Sensitive Data Protection (Secret[T]) ---")
+	fmt.Printf("Database struct dump (%%+v) : %+v\n", cfg.Database)
+	fmt.Printf("Direct field print (%%s)     : %s\n", cfg.Database.Password)
+	fmt.Printf("Raw value via .Value()      : %s\n", cfg.Database.Password.Value())
 }
+```
 
+#### Output:
 
+```text
+--- Configuration Loaded Successfully ---
+App: MyService (Debug: false)
+Server: localhost:8080 (ReadTimeout: 10s)
+Database: postgres@postgres.internal:5432
+
+--- Sensitive Data Protection (Secret[T]) ---
+Database struct dump (%+v) : {Host:postgres.internal Port:5432 User:postgres Password:[SECRET]}
+Direct field print (%s)     : [SECRET]
+Raw value via .Value()      : super-secret-production-password
 ```
 
 ## Key Features
