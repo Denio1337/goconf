@@ -51,15 +51,28 @@ func NewLoader(opts ...Option) *Loader {
 // Load reads data from all registered sources and decodes it into target.
 // target must be a non-nil pointer to a struct.
 func (l *Loader) Load(target any) error {
-	sources := l.sources
-	// Default: if no sources were explicitly added, load .env (ignoring if missing)
-	// followed by OS environment variables, giving primary priority to environment variables.
+	sources := make([]Source, 0, len(l.sources)+2)
+	sources = append(sources, l.sources...)
+
+	// Default to .env if no sources were explicitly added
 	if len(sources) == 0 {
-		sources = []Source{
-			dotenv.New(".env", dotenv.WithIgnoreMissing(true)),
-			env.New(),
+		sources = append(sources, dotenv.New(".env", dotenv.WithIgnoreMissing(true)))
+	}
+
+	// Always ensure an env source is appended at the end with the highest priority
+	var envSource Source
+	filtered := make([]Source, 0, len(sources))
+	for _, s := range sources {
+		if _, ok := s.(*env.Source); ok {
+			envSource = s
+		} else {
+			filtered = append(filtered, s)
 		}
 	}
+	if envSource == nil {
+		envSource = env.New()
+	}
+	sources = append(filtered, envSource)
 
 	st := NewStore()
 
@@ -68,7 +81,10 @@ func (l *Loader) Load(target any) error {
 		if err != nil {
 			return fmt.Errorf("source %q failed to load: %w", src.Name(), err)
 		}
-		st.Merge(data)
+		// Ambient OS environment variables ("env") should not be tracked as strict unknown keys
+		// to prevent unconsumed OS-level variables (e.g. PATH, HOME) from triggering false positives.
+		isAmbientEnv := src.Name() == "env"
+		st.MergeWithStrict(data, !isAmbientEnv)
 	}
 
 	decoder := NewDecoder(st)

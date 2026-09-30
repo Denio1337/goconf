@@ -421,3 +421,43 @@ func TestLoadDefaultBehavior_EnvOverridesDotEnv(t *testing.T) {
 		t.Errorf("DBName: expected dotenv_db (from .env), got %q", cfg.DBName)
 	}
 }
+
+func TestLoad_AlwaysAppendsEnv_WithJSON(t *testing.T) {
+	os.Setenv("PORT", "9999")
+	defer os.Unsetenv("PORT")
+
+	jsonContent := `{"port": 8080, "host": "127.0.0.1"}`
+
+	var cfg struct {
+		Port int    `key:"PORT"`
+		Host string `key:"HOST"`
+	}
+
+	// We only pass WithJSONReader, but env is always appended with highest priority
+	err := goconf.Load(&cfg, goconf.WithJSONReader(strings.NewReader(jsonContent)))
+	if err != nil {
+		t.Fatalf("unexpected load error: %v", err)
+	}
+
+	if cfg.Port != 9999 {
+		t.Errorf("Port: expected 9999 (from OS env override), got %d", cfg.Port)
+	}
+	if cfg.Host != "127.0.0.1" {
+		t.Errorf("Host: expected 127.0.0.1 (from JSON), got %q", cfg.Host)
+	}
+}
+
+func TestStrictUnknown_NoFalsePositivesFromAmbientEnv(t *testing.T) {
+	var cfg ServerConfig
+	// Valid .env content matching ServerConfig fields
+	validContent := "PORT=8080\nSECRET=my-secret\nHOST=localhost\n"
+
+	// WithStrictUnknown(true) should succeed without flagging ambient OS env vars (like PATH, SHELL)
+	err := goconf.Load(&cfg,
+		goconf.WithDotEnvReader(strings.NewReader(validContent)),
+		goconf.WithStrictUnknown(true),
+	)
+	if err != nil {
+		t.Fatalf("expected nil error for valid config with strict unknown, got: %v", err)
+	}
+}

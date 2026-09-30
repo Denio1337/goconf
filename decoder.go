@@ -69,7 +69,7 @@ func (d *Decoder) Decode(target any) error {
 
 	// If strict unknown keys enabled, check for unused keys
 	if d.strictUnknown {
-		for key := range d.store.All() {
+		for key := range d.store.StrictKeys() {
 			if !d.consumedKeys[strings.ToUpper(key)] && !d.consumedKeys[strings.ToLower(key)] && !d.consumedKeys[key] {
 				valErr.Add(FieldError{
 					Key: key,
