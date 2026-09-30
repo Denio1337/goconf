@@ -7,6 +7,7 @@ import (
 	"github.com/Denio1337/goconf/source/dotenv"
 	"github.com/Denio1337/goconf/source/ini"
 	"github.com/Denio1337/goconf/source/json"
+	"github.com/Denio1337/goconf/source/yaml"
 )
 
 // Option is a functional option for configuring a Loader.
@@ -69,6 +70,22 @@ func WithJSON(filenames ...string) Option {
 func WithJSONReader(r io.Reader) Option {
 	return func(l *Loader) {
 		l.sources = append(l.sources, json.NewReader(r))
+	}
+}
+
+// WithYAML adds one or more YAML file sources.
+func WithYAML(filenames ...string) Option {
+	return func(l *Loader) {
+		for _, name := range filenames {
+			l.sources = append(l.sources, yaml.New(name, yaml.WithIgnoreMissing(l.ignoreMissing)))
+		}
+	}
+}
+
+// WithYAMLReader adds a YAML source that reads from an io.Reader.
+func WithYAMLReader(r io.Reader) Option {
+	return func(l *Loader) {
+		l.sources = append(l.sources, yaml.NewReader(r))
 	}
 }
 

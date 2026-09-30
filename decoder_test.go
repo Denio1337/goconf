@@ -319,4 +319,3 @@ func TestDecoderRawSliceAndMap(t *testing.T) {
 		t.Errorf("Meta mismatch: %v", cfg.Meta)
 	}
 }
-

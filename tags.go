@@ -51,4 +51,14 @@ const (
 	// Example:
 	//   Port int `key:"PORT" doc:"TCP port to listen on"`
 	TagDescription = "doc"
+
+	// Legacy struct tag constants supported for backward compatibility.
+	TagLegacyEnv            = "env"
+	TagLegacyConfig         = "config"
+	TagLegacyEnvDefault     = "env-default"
+	TagLegacyConfigDefault  = "config-default"
+	TagLegacyEnvRequired    = "env-required"
+	TagLegacyConfigRequired = "config-required"
+	TagLegacyEnvPrefix      = "env-prefix"
+	TagLegacyConfigPrefix   = "config-prefix"
 )

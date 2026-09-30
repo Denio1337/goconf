@@ -123,6 +123,44 @@ func TestLoadWithJSON(t *testing.T) {
 	}
 }
 
+func TestLoadWithYAML(t *testing.T) {
+	yamlContent := `
+server:
+  host: "10.0.0.5"
+  port: 8088
+  timeout: "12s"
+  secret: "yaml-token-secret"
+  features:
+    - grpc
+    - rest
+`
+
+	var cfg struct {
+		Server ServerConfig `prefix:"SERVER_"`
+	}
+
+	err := goconf.Load(&cfg, goconf.WithYAMLReader(strings.NewReader(yamlContent)))
+	if err != nil {
+		t.Fatalf("unexpected load error from YAML: %v", err)
+	}
+
+	if cfg.Server.Host != "10.0.0.5" {
+		t.Errorf("Host: expected 10.0.0.5, got %q", cfg.Server.Host)
+	}
+	if cfg.Server.Port != 8088 {
+		t.Errorf("Port: expected 8088, got %d", cfg.Server.Port)
+	}
+	if cfg.Server.Timeout != 12*time.Second {
+		t.Errorf("Timeout: expected 12s, got %v", cfg.Server.Timeout)
+	}
+	if cfg.Server.Secret != "yaml-token-secret" {
+		t.Errorf("Secret: expected yaml-token-secret, got %q", cfg.Server.Secret)
+	}
+	if len(cfg.Server.Features) != 2 || cfg.Server.Features[0] != "grpc" {
+		t.Errorf("Features: expected [grpc, rest], got %v", cfg.Server.Features)
+	}
+}
+
 func TestStrictUnknownKeys(t *testing.T) {
 	envContent := "PORT=8080\nSECRET=xyz\nUNKNOWN_TYPO=something\n"
 

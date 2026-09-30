@@ -125,4 +125,3 @@ func flattenAndMerge(prefix string, current map[string]any, dest map[string]any)
 		}
 	}
 }
-

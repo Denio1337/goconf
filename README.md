@@ -236,13 +236,31 @@ password = "secret"
 err := goconf.Load(&cfg, goconf.WithJSON("config.json"))
 ```
 
+### Использование файлов YAML:
+
+```yaml
+app_name: "My Application"
+server:
+  host: 0.0.0.0
+  port: 8080
+database:
+  host: localhost
+  port: 5432
+  password: "secret"
+```
+
+```go
+err := goconf.Load(&cfg, goconf.WithYAML("config.yaml"))
+```
+
 ### Использование нескольких источников с приоритетами:
 
 ```go
 err := goconf.Load(&cfg,
-    goconf.WithDotEnv(".env"),    // 1. Базовые значения из .env
-    goconf.WithINI("config.ini"), // 2. Переопределения из INI
-    goconf.WithJSON("local.json"),// 3. Локальные переопределения из JSON
+    goconf.WithDotEnv(".env"),     // 1. Базовые значения из .env
+    goconf.WithINI("config.ini"),  // 2. Переопределения из INI
+    goconf.WithJSON("local.json"), // 3. Локальные переопределения из JSON
+    goconf.WithYAML("prod.yaml"),  // 4. Финальные переопределения из YAML
 )
 ```
 Источники применяются по порядку: более поздние перезаписывают совпавшие ключи более ранних.

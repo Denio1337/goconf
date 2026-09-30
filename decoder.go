@@ -106,21 +106,39 @@ func (d *Decoder) decodeStruct(v reflect.Value, prefix string, structPath string
 		if isConfigStruct(field.Type) {
 			childPrefix := prefix
 
-			// Check prefix tag: `prefix:"..."`
-			if structPrefix, ok := field.Tag.Lookup(TagPrefix); ok {
-				childPrefix = prefix + structPrefix
-			} else if keyTag, ok := field.Tag.Lookup(TagKey); ok && keyTag != "" {
-				// If `key:"DB"` is specified on the nested struct field, use it as prefix
-				keyParts := strings.Split(keyTag, ",")
-				baseKey := strings.TrimSpace(keyParts[0])
-				if baseKey != "" {
-					if !strings.HasSuffix(baseKey, "_") && !strings.HasSuffix(baseKey, ".") {
-						baseKey += "_"
-					}
-					childPrefix = prefix + baseKey
+			// Check prefix tag: `prefix:"..."` or legacy `env-prefix:"..."`, `config-prefix:"..."`
+			var structPrefix string
+			var hasPrefixTag bool
+			for _, pTag := range []string{TagPrefix, TagLegacyEnvPrefix, TagLegacyConfigPrefix} {
+				if sp, ok := field.Tag.Lookup(pTag); ok {
+					structPrefix = sp
+					hasPrefixTag = true
+					break
 				}
-			} else if !field.Anonymous {
-				childPrefix = prefix + toScreamingSnake(field.Name) + "_"
+			}
+
+			if hasPrefixTag {
+				childPrefix = prefix + structPrefix
+			} else {
+				var keyTag string
+				for _, kTag := range []string{TagKey, TagLegacyEnv, TagLegacyConfig} {
+					if kt, ok := field.Tag.Lookup(kTag); ok && kt != "" {
+						keyTag = kt
+						break
+					}
+				}
+				if keyTag != "" {
+					keyParts := strings.Split(keyTag, ",")
+					baseKey := strings.TrimSpace(keyParts[0])
+					if baseKey != "" {
+						if !strings.HasSuffix(baseKey, "_") && !strings.HasSuffix(baseKey, ".") {
+							baseKey += "_"
+						}
+						childPrefix = prefix + baseKey
+					}
+				} else if !field.Anonymous {
+					childPrefix = prefix + toScreamingSnake(field.Name) + "_"
+				}
 			}
 
 			// Mark parent container / prefix keys as consumed so strictUnknown doesn't flag them
@@ -234,7 +252,13 @@ func parseFieldTag(field reflect.StructField) fieldTagInfo {
 	}
 
 	// 1. Check primary TagKey ("key"), then fallback to legacy ("env", "config")
-	tag := field.Tag.Get(TagKey)
+	var tag string
+	for _, k := range []string{TagKey, TagLegacyEnv, TagLegacyConfig} {
+		if t := field.Tag.Get(k); t != "" {
+			tag = t
+			break
+		}
+	}
 
 	if tag != "" {
 		parts := strings.Split(tag, ",")
@@ -253,14 +277,20 @@ func parseFieldTag(field reflect.StructField) fieldTagInfo {
 	}
 
 	// 2. Check explicit default tag
-	if def, ok := field.Tag.Lookup(TagDefault); ok {
-		info.hasDefault = true
-		info.defaultValue = def
+	for _, dTag := range []string{TagDefault, TagLegacyEnvDefault, TagLegacyConfigDefault} {
+		if def, ok := field.Tag.Lookup(dTag); ok {
+			info.hasDefault = true
+			info.defaultValue = def
+			break
+		}
 	}
 
 	// 3. Check explicit required tag
-	if req, ok := field.Tag.Lookup(TagRequired); ok {
-		info.required = strings.EqualFold(req, "true") || req == "1"
+	for _, rTag := range []string{TagRequired, TagLegacyEnvRequired, TagLegacyConfigRequired} {
+		if req, ok := field.Tag.Lookup(rTag); ok {
+			info.required = strings.EqualFold(req, "true") || req == "1"
+			break
+		}
 	}
 
 	// 4. Separator tag for slices
@@ -341,6 +371,20 @@ func (d *Decoder) markConsumed(key string) {
 func (d *Decoder) decodeFieldValue(v reflect.Value, raw any, tagInfo fieldTagInfo) error {
 	if raw == nil {
 		return nil
+	}
+
+	// Special types that shouldn't be handled as generic slices or maps:
+	// net.IP is defined as []byte in the stdlib, but should be decoded as an IP string
+	if v.Type() == reflect.TypeOf(net.IP{}) {
+		return d.decodeField(v, fmt.Sprint(raw), tagInfo)
+	}
+
+	// Types implementing TextUnmarshaler or BinaryUnmarshaler
+	textUnmarshaler := reflect.TypeFor[encoding.TextUnmarshaler]()
+	binaryUnmarshaler := reflect.TypeFor[encoding.BinaryUnmarshaler]()
+	if v.Type().Implements(textUnmarshaler) || (v.CanAddr() && v.Addr().Type().Implements(textUnmarshaler)) ||
+		v.Type().Implements(binaryUnmarshaler) || (v.CanAddr() && v.Addr().Type().Implements(binaryUnmarshaler)) {
+		return d.decodeField(v, fmt.Sprint(raw), tagInfo)
 	}
 
 	// 1. If target is slice
