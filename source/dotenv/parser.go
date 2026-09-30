@@ -11,9 +11,7 @@ import (
 	"unicode"
 )
 
-var (
-	varExpansionRegexp = regexp.MustCompile(`(\\)?(\$)(?:\{([a-zA-Z0-9_]+)(?::-([^}]*))?\}|([a-zA-Z0-9_]+))`)
-)
+var expansionRegexp = regexp.MustCompile(`(\\)?(\$)(?:\{([a-zA-Z0-9_]+)(?::-([^}]*))?\}|([a-zA-Z0-9_]+))`)
 
 // Parser parses .env format data into a key-value map.
 type Parser struct {
@@ -228,8 +226,8 @@ func (p *Parser) parseSingleQuoted(rest string, scanner *bufio.Scanner, lineNum 
 
 // interpolate expands ${VAR:-default} and $VAR using already parsed values or OS environment.
 func (p *Parser) interpolate(input string, currentValues map[string]string) string {
-	return varExpansionRegexp.ReplaceAllStringFunc(input, func(m string) string {
-		sub := varExpansionRegexp.FindStringSubmatch(m)
+	return expansionRegexp.ReplaceAllStringFunc(input, func(m string) string {
+		sub := expansionRegexp.FindStringSubmatch(m)
 		if len(sub) == 0 {
 			return m
 		}
