@@ -15,6 +15,7 @@
 - 🔄 **Cascading Multi-Source Overrides**: Combine multiple configuration layers with deterministic precedence (e.g. INI base defaults &rarr; YAML shared configs &rarr; TOML service configs &rarr; JSON local overrides &rarr; `.env` secrets).
 - 🏷️ **Smart Name Resolution & Canonical `key` Tag**: Supports explicit `key` tags as well as automatic zero-tag resolution (supporting `snake_case`, `camelCase`, `kebab-case`, `UPPER_CASE`, `Section.Key`, and common database synonyms like `db_name`/`database`).
 - 📁 **Built-in Format Sources**:
+  - **OS Environment Variables**: Full 12-Factor app support (`WithEnv()`, `WithEnvPrefix("APP_")`), prefix stripping, and `__` double-underscore hierarchy mapping.
   - **`.env`**: Full support for quotes, multiline values, escape sequences, inline comments, and variable interpolation (`${VAR:-default}`).
   - **`.ini`**: Sections `[section]`, nested subsections `[section.sub]`, comments (`;` and `#`), and hierarchical mapping.
   - **`.json`**: Hierarchical JSON documents with numeric precision preservation.
@@ -166,6 +167,30 @@ func main() {
 ```
 
 Check out [examples/complex](examples/complex) for a full runnable demonstration combining 5 cascading format layers.
+
+---
+
+## 12-Factor App & OS Environment Variables
+
+`goconf` provides native support for cloud-native and containerized 12-Factor applications where configuration is provided entirely through operating system environment variables without any files on disk:
+
+```go
+// Read all OS environment variables
+err := goconf.Load(&cfg, goconf.WithEnv())
+
+// Or filter and automatically strip an application prefix (e.g. APP_PORT=8080 -> PORT)
+err := goconf.Load(&cfg, goconf.WithEnvPrefix("APP_"))
+```
+
+- **Hierarchy mapping**: Double underscores `__` in variable names are automatically mapped to nested struct fields (e.g. `SERVER__PORT=8080` or `DATABASE__HOST=postgres` map cleanly to `cfg.Server.Port` and `cfg.Database.Host`).
+- **File + Environment layering**: Easily combine base configuration files with environment variable overrides:
+  ```go
+  err := goconf.Load(&cfg,
+      goconf.WithIgnoreMissing(true),
+      goconf.WithDotEnv(".env"), // Developer defaults (if present)
+      goconf.WithEnv(),          // Production OS env overrides
+  )
+  ```
 
 ---
 

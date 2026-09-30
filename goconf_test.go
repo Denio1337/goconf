@@ -2,11 +2,13 @@ package goconf_test
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Denio1337/goconf"
+	"github.com/Denio1337/goconf/source/env"
 )
 
 type ServerConfig struct {
@@ -287,5 +289,70 @@ func TestCascadingMultiSourceOverrides(t *testing.T) {
 	}
 	if cfg.Debug != false {
 		t.Errorf("Debug: expected false (from YAML), got %t", cfg.Debug)
+	}
+}
+
+func TestLoadWithEnv(t *testing.T) {
+	os.Setenv("TEST_APP_SERVER_PORT", "9999")
+	os.Setenv("TEST_APP_SERVER_HOST", "127.0.0.1")
+	os.Setenv("TEST_APP_SECRET", "env-secret")
+	defer func() {
+		os.Unsetenv("TEST_APP_SERVER_PORT")
+		os.Unsetenv("TEST_APP_SERVER_HOST")
+		os.Unsetenv("TEST_APP_SECRET")
+	}()
+
+	type Config struct {
+		Server struct {
+			Host string `key:"HOST"`
+			Port int    `key:"PORT"`
+		} `prefix:"SERVER_"`
+		Secret string `key:"SECRET"`
+	}
+
+	var cfg Config
+	// Pure environment variables, no config file
+	err := goconf.Load(&cfg, goconf.WithEnvPrefix("TEST_APP_"))
+	if err != nil {
+		t.Fatalf("unexpected load error: %v", err)
+	}
+
+	if cfg.Server.Port != 9999 {
+		t.Errorf("expected Server.Port=9999, got %d", cfg.Server.Port)
+	}
+	if cfg.Server.Host != "127.0.0.1" {
+		t.Errorf("expected Server.Host=127.0.0.1, got %q", cfg.Server.Host)
+	}
+	if cfg.Secret != "env-secret" {
+		t.Errorf("expected Secret=env-secret, got %q", cfg.Secret)
+	}
+}
+
+func TestLoadWithEnvOverride(t *testing.T) {
+	dotEnvContent := "PORT=8080\nDEBUG=false\n"
+
+	var cfg struct {
+		Port  int  `key:"PORT"`
+		Debug bool `key:"DEBUG"`
+	}
+
+	// Environment variable overrides .env
+	customEnv := []string{
+		"PORT=9090",
+	}
+
+	err := goconf.Load(&cfg,
+		goconf.WithDotEnvReader(strings.NewReader(dotEnvContent)),
+		goconf.WithEnv(env.WithEnviron(customEnv)),
+	)
+	if err != nil {
+		t.Fatalf("unexpected load error: %v", err)
+	}
+
+	if cfg.Port != 9090 {
+		t.Errorf("expected Port=9090 (from env override), got %d", cfg.Port)
+	}
+	if cfg.Debug != false {
+		t.Errorf("expected Debug=false (from .env), got %t", cfg.Debug)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/Denio1337/goconf/source/dotenv"
+	"github.com/Denio1337/goconf/source/env"
 	"github.com/Denio1337/goconf/source/ini"
 	"github.com/Denio1337/goconf/source/json"
 	"github.com/Denio1337/goconf/source/toml"
@@ -103,6 +104,22 @@ func WithTOML(filenames ...string) Option {
 func WithTOMLReader(r io.Reader) Option {
 	return func(l *Loader) {
 		l.sources = append(l.sources, toml.NewReader(r))
+	}
+}
+
+// WithEnv adds OS environment variables as a configuration source.
+// By default, it reads all environment variables.
+func WithEnv(opts ...env.Option) Option {
+	return func(l *Loader) {
+		l.sources = append(l.sources, env.New(opts...))
+	}
+}
+
+// WithEnvPrefix adds OS environment variables matching the specified prefix
+// (e.g. "APP_") as a configuration source.
+func WithEnvPrefix(prefix string) Option {
+	return func(l *Loader) {
+		l.sources = append(l.sources, env.New(env.WithPrefix(prefix)))
 	}
 }
 
