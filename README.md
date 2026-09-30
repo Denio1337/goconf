@@ -2,7 +2,6 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/Denio1337/goconf.svg)](https://pkg.go.dev/github.com/Denio1337/goconf)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Go Report Card](https://goreportcard.com/badge/github.com/Denio1337/goconf)](https://goreportcard.com/report/github.com/Denio1337/goconf)
 
 **goconf** is a modern, robust, and strictly typed configuration library for Go. It loads and merges configuration from multiple sources (`.env`, `INI`, `JSON`, `YAML`, `TOML`, environment variables, or custom providers) into a target Go struct with comprehensive type validation and cascading precedence.
 
