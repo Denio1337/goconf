@@ -21,7 +21,7 @@ type DatabaseConfig struct {
 	Port     int
 	User     string
 	Password string
-	Database string
+	Database string `key:"NAME"`
 }
 
 type Config struct {
