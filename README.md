@@ -251,6 +251,25 @@ database:
 err := goconf.Load(&cfg, goconf.WithYAML("config.yaml"))
 ```
 
+### Использование файлов TOML:
+
+```toml
+app_name = "My Application"
+
+[server]
+host = "0.0.0.0"
+port = 8080
+
+[database]
+host = "localhost"
+port = 5432
+password = "secret"
+```
+
+```go
+err := goconf.Load(&cfg, goconf.WithTOML("config.toml"))
+```
+
 ### Использование нескольких источников с приоритетами:
 
 ```go
@@ -258,7 +277,8 @@ err := goconf.Load(&cfg,
     goconf.WithDotEnv(".env"),     // 1. Базовые значения из .env
     goconf.WithINI("config.ini"),  // 2. Переопределения из INI
     goconf.WithJSON("local.json"), // 3. Локальные переопределения из JSON
-    goconf.WithYAML("prod.yaml"),  // 4. Финальные переопределения из YAML
+    goconf.WithYAML("prod.yaml"),  // 4. Переопределения из YAML
+    goconf.WithTOML("infra.toml"), // 5. Финальные переопределения из TOML
 )
 ```
 Источники применяются по порядку: более поздние перезаписывают совпавшие ключи более ранних.

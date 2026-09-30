@@ -161,6 +161,42 @@ server:
 	}
 }
 
+func TestLoadWithTOML(t *testing.T) {
+	tomlContent := `
+[server]
+host = "10.0.0.12"
+port = 7070
+timeout = "18s"
+secret = "toml-token-secret"
+features = ["metrics", "tracing"]
+`
+
+	var cfg struct {
+		Server ServerConfig `prefix:"SERVER_"`
+	}
+
+	err := goconf.Load(&cfg, goconf.WithTOMLReader(strings.NewReader(tomlContent)))
+	if err != nil {
+		t.Fatalf("unexpected load error from TOML: %v", err)
+	}
+
+	if cfg.Server.Host != "10.0.0.12" {
+		t.Errorf("Host: expected 10.0.0.12, got %q", cfg.Server.Host)
+	}
+	if cfg.Server.Port != 7070 {
+		t.Errorf("Port: expected 7070, got %d", cfg.Server.Port)
+	}
+	if cfg.Server.Timeout != 18*time.Second {
+		t.Errorf("Timeout: expected 18s, got %v", cfg.Server.Timeout)
+	}
+	if cfg.Server.Secret != "toml-token-secret" {
+		t.Errorf("Secret: expected toml-token-secret, got %q", cfg.Server.Secret)
+	}
+	if len(cfg.Server.Features) != 2 || cfg.Server.Features[0] != "metrics" {
+		t.Errorf("Features: expected [metrics, tracing], got %v", cfg.Server.Features)
+	}
+}
+
 func TestStrictUnknownKeys(t *testing.T) {
 	envContent := "PORT=8080\nSECRET=xyz\nUNKNOWN_TYPO=something\n"
 

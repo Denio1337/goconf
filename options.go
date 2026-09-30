@@ -7,6 +7,7 @@ import (
 	"github.com/Denio1337/goconf/source/dotenv"
 	"github.com/Denio1337/goconf/source/ini"
 	"github.com/Denio1337/goconf/source/json"
+	"github.com/Denio1337/goconf/source/toml"
 	"github.com/Denio1337/goconf/source/yaml"
 )
 
@@ -86,6 +87,22 @@ func WithYAML(filenames ...string) Option {
 func WithYAMLReader(r io.Reader) Option {
 	return func(l *Loader) {
 		l.sources = append(l.sources, yaml.NewReader(r))
+	}
+}
+
+// WithTOML adds one or more TOML file sources.
+func WithTOML(filenames ...string) Option {
+	return func(l *Loader) {
+		for _, name := range filenames {
+			l.sources = append(l.sources, toml.New(name, toml.WithIgnoreMissing(l.ignoreMissing)))
+		}
+	}
+}
+
+// WithTOMLReader adds a TOML source that reads from an io.Reader.
+func WithTOMLReader(r io.Reader) Option {
+	return func(l *Loader) {
+		l.sources = append(l.sources, toml.NewReader(r))
 	}
 }
 
