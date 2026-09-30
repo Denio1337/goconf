@@ -257,3 +257,35 @@ func TestMissingDotEnvFile(t *testing.T) {
 		t.Fatalf("expected ValidationError, got %v", err)
 	}
 }
+
+func TestCascadingMultiSourceOverrides(t *testing.T) {
+	type Config struct {
+		AppName string `key:"APP_NAME"`
+		Port    int    `key:"PORT"`
+		Debug   bool   `key:"DEBUG"`
+	}
+
+	envContent := "APP_NAME=FromEnv\nPORT=8000\nDEBUG=true\n"
+	jsonContent := `{"port": 8080}`
+	yamlContent := "app_name: FromYAML\ndebug: false\n"
+
+	var cfg Config
+	err := goconf.Load(&cfg,
+		goconf.WithDotEnvReader(strings.NewReader(envContent)),
+		goconf.WithJSONReader(strings.NewReader(jsonContent)),
+		goconf.WithYAMLReader(strings.NewReader(yamlContent)),
+	)
+	if err != nil {
+		t.Fatalf("unexpected load error: %v", err)
+	}
+
+	if cfg.AppName != "FromYAML" {
+		t.Errorf("AppName: expected FromYAML, got %q", cfg.AppName)
+	}
+	if cfg.Port != 8080 {
+		t.Errorf("Port: expected 8080 (from JSON), got %d", cfg.Port)
+	}
+	if cfg.Debug != false {
+		t.Errorf("Debug: expected false (from YAML), got %t", cfg.Debug)
+	}
+}

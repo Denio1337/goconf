@@ -43,7 +43,7 @@ func (s *Store) Set(key string, value any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.values[key] = value
+	setVariants(s.values, key, value)
 }
 
 // Get looks up a value by one or more candidate keys in order of precedence.
@@ -102,26 +102,26 @@ func flattenAndMerge(prefix string, current map[string]any, dest map[string]any)
 		}
 
 		if subMap, ok := v.(map[string]any); ok {
-			dest[fullKey] = v
-			underscored := strings.ReplaceAll(fullKey, ".", "_")
-			if _, exists := dest[underscored]; !exists {
-				dest[underscored] = v
-			}
+			setVariants(dest, fullKey, v)
 			flattenAndMerge(fullKey, subMap, dest)
 		} else {
-			dest[fullKey] = v
-
-			// Also store normalized variants for easy lookup
-			// e.g. "server.port" -> also "SERVER_PORT", "SERVER__PORT"
-			underscored := strings.ReplaceAll(fullKey, ".", "_")
-			doubleUnderscore := strings.ReplaceAll(fullKey, ".", "__")
-
-			if _, exists := dest[underscored]; !exists {
-				dest[underscored] = v
-			}
-			if _, exists := dest[doubleUnderscore]; !exists {
-				dest[doubleUnderscore] = v
-			}
+			setVariants(dest, fullKey, v)
 		}
 	}
+}
+
+func setVariants(dest map[string]any, key string, v any) {
+	dest[key] = v
+	dest[strings.ToUpper(key)] = v
+	dest[strings.ToLower(key)] = v
+
+	underscored := strings.ReplaceAll(key, ".", "_")
+	dest[underscored] = v
+	dest[strings.ToUpper(underscored)] = v
+	dest[strings.ToLower(underscored)] = v
+
+	doubleUnderscore := strings.ReplaceAll(key, ".", "__")
+	dest[doubleUnderscore] = v
+	dest[strings.ToUpper(doubleUnderscore)] = v
+	dest[strings.ToLower(doubleUnderscore)] = v
 }

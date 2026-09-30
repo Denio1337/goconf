@@ -1,0 +1,9 @@
+# Layer 5: TOML final overrides for infrastructure and production environment
+environment = "production"
+
+[server]
+host = "0.0.0.0"
+max_conns = 5000
+
+[database]
+host = "prod-pg-cluster.internal"

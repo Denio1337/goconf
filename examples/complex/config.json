@@ -1,0 +1,10 @@
+{
+  "_comment": "Layer 3: JSON overrides server port, timeout, and database name",
+  "server": {
+    "port": 8080,
+    "timeout": "15s"
+  },
+  "database": {
+    "name": "staging_microservice_db"
+  }
+}

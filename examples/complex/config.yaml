@@ -1,0 +1,8 @@
+# Layer 4: YAML overrides app_name, debug flag, and features slice
+app_name: ProductionReadyApp
+debug: false
+features:
+  - logging
+  - metrics
+  - tracing
+  - health_check
