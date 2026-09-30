@@ -35,11 +35,6 @@ func (s Secret[T]) Value() T {
 	return s.value
 }
 
-// Expose returns the raw underlying secret value. It is an alias for Value.
-func (s Secret[T]) Expose() T {
-	return s.value
-}
-
 // String implements fmt.Stringer, returning "[SECRET]".
 func (s Secret[T]) String() string {
 	return "[SECRET]"

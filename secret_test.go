@@ -27,9 +27,6 @@ func TestSecretFormatting(t *testing.T) {
 	if sec.Value() != "super-secret-password-123" {
 		t.Errorf("expected raw value 'super-secret-password-123', got %q", sec.Value())
 	}
-	if sec.Expose() != "super-secret-password-123" {
-		t.Errorf("expected expose value 'super-secret-password-123', got %q", sec.Expose())
-	}
 
 	// Stringer / fmt
 	if got := fmt.Sprint(sec); got != "[SECRET]" {

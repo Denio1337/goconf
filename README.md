@@ -31,9 +31,9 @@
   - Maps (`map[string]T`)
   - Pointers (allocated only when a corresponding value is present)
   - Nested and embedded structs with prefix inheritance
-  - Sensitive data protection via `goconf.Secret[T]` (masked as `[SECRET]` in logs and prints)
   - Custom deserialization via `encoding.TextUnmarshaler`
-  - Business logic validation via the `Validator` interface
+- 🔒 **Sensitive Data Protection (`Secret[T]`)**: Generic wrapper protecting passwords, tokens, and API keys. Values are masked as `[SECRET]` in `fmt.Print*`, `log.Print*`, and JSON serialization, while accessible via `.Value()`.
+- ✅ **Custom Validation (`Validator`)**: Domain-level business rule validation by implementing `Validate() error` on configuration structs, invoked automatically upon decoding.
 - 🪶 **Minimal Dependencies**: The core library relies strictly on the Go standard library, with lightweight optional modules for YAML and TOML.
 
 ---
@@ -284,7 +284,7 @@ func main() {
     log.Println(cfg)              // Output: {localhost [SECRET] 5432}
 
     // Access the raw secret value safely when needed:
-    rawPassword := cfg.Password.Value() // or cfg.Password.Expose()
+    rawPassword := cfg.Password.Value()
     db.Connect(rawPassword)
 }
 ```
