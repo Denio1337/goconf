@@ -43,7 +43,7 @@ import (
 )
 
 // ServerConfig demonstrates nested structures and custom validation via Validator.
-// Note: `key` tags are completely optional! Names like SERVER_READ_TIMEOUT are automatically inferred.
+// Note: `key` tags are completely optional!
 type ServerConfig struct {
 	Host         string        `default:"localhost"`
 	Port         int           `default:"8080"`
@@ -63,7 +63,8 @@ type DatabaseConfig struct {
 	Host     string                `default:"localhost"`
 	Port     int                   `default:"5432"`
 	User     string                `default:"postgres"`
-	Password goconf.Secret[string] `required:"true"` // Protected against accidental leaks
+	// Protected against accidental leaks
+    Password goconf.Secret[string] `required:"true"` 
 }
 
 type Config struct {
@@ -141,51 +142,12 @@ Raw value via .Value()      : super-secret-production-password
 `goconf` allows layering multiple configuration sources with strict override precedence. Sources are evaluated in order; later sources override values provided by earlier sources.
 
 ```go
-package main
 
-import (
-	"fmt"
-	"log"
-
-	"github.com/Denio1337/goconf"
-)
-
-type Config struct {
-	AppName  string `key:"app_name"`
-	Debug    bool   `key:"debug"`
-	Server   ServerConfig
-	Database DatabaseConfig
-}
-
-type ServerConfig struct {
-	Host string `key:"host"`
-	Port int    `key:"port"`
-}
-
-type DatabaseConfig struct {
-	Host     string `key:"host"`
-	Port     int    `key:"port"`
-	Name     string `key:"db_name"`
-	User     string `key:"user"`
-	Password string `key:"password"`
-}
-
-func main() {
-	var cfg Config
-
-	err := goconf.Load(&cfg,
-		goconf.WithINI("config.ini"),   // 1. Base defaults
-		goconf.WithYAML("config.yaml"), // 2. Shared service config
-		goconf.WithTOML("config.toml"), // 3. Environment overrides
-		goconf.WithJSON("local.json"),  // 4. Local development overrides
-		goconf.WithDotEnv(".env"),      // 5. Secrets and environment overrides
-	)
-	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
-	}
-
-	fmt.Printf("Loaded App: %s, DB: %s\n", cfg.AppName, cfg.Database.Name)
-}
+goconf.WithINI("config.ini")   // 1. Base defaults
+goconf.WithYAML("config.yaml") // 2. Shared service config
+goconf.WithTOML("config.toml") // 3. Environment overrides
+goconf.WithJSON("local.json")  // 4. Local development overrides
+goconf.WithDotEnv(".env")      // 5. Secrets and environment overrides
 ```
 
 Check out [examples/complex](examples/complex) for a full runnable demonstration combining 5 cascading format layers.
