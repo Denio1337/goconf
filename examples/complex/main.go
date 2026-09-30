@@ -10,27 +10,27 @@ import (
 )
 
 type ServerConfig struct {
-	Host     string        `key:"HOST"`
-	Port     int           `key:"PORT"`
-	Timeout  time.Duration `key:"TIMEOUT"`
-	MaxConns int           `key:"MAX_CONNS"`
+	Host     string
+	Port     int
+	Timeout  time.Duration
+	MaxConns int
 }
 
 type DatabaseConfig struct {
-	Host     string `key:"HOST"`
-	Port     int    `key:"PORT"`
-	User     string `key:"USER"`
-	Password string `key:"PASSWORD"`
-	Database string `key:"NAME"`
+	Host     string
+	Port     int
+	User     string
+	Password string
+	Database string
 }
 
 type Config struct {
-	AppName     string         `key:"APP_NAME"`
-	Environment string         `key:"ENVIRONMENT"`
-	Debug       bool           `key:"DEBUG"`
-	Features    []string       `key:"FEATURES"`
-	Server      ServerConfig   `prefix:"SERVER_"`
-	Database    DatabaseConfig `prefix:"DATABASE_"`
+	AppName     string
+	Environment string
+	Debug       bool
+	Features    []string
+	Server      ServerConfig
+	Database    DatabaseConfig
 }
 
 func main() {
