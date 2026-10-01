@@ -72,7 +72,11 @@ func (d *Decoder) Decode(target any) error {
 	// If strict unknown keys enabled, check for unused keys
 	if d.strictUnknown {
 		for key := range d.store.StrictKeys() {
-			if !d.consumedKeys[strings.ToUpper(key)] && !d.consumedKeys[strings.ToLower(key)] && !d.consumedKeys[key] {
+			lower := strings.ToLower(key)
+			if !d.consumedKeys[key] && !d.consumedKeys[lower] &&
+				!d.consumedKeys[strings.ReplaceAll(lower, ".", "_")] &&
+				!d.consumedKeys[strings.ReplaceAll(lower, ".", "__")] &&
+				!d.consumedKeys[strings.ReplaceAll(lower, "_", ".")] {
 				valErr.Add(FieldError{
 					Key: key,
 					Err: fmt.Errorf("unknown configuration key %q", key),
@@ -341,12 +345,13 @@ func (d *Decoder) markConsumed(key string) {
 		return
 	}
 	d.consumedKeys[key] = true
-	d.consumedKeys[strings.ToUpper(key)] = true
 	d.consumedKeys[strings.ToLower(key)] = true
-	d.consumedKeys[strings.ReplaceAll(key, ".", "_")] = true
-	d.consumedKeys[strings.ReplaceAll(key, ".", "__")] = true
-	d.consumedKeys[strings.ToUpper(strings.ReplaceAll(key, ".", "_"))] = true
-	d.consumedKeys[strings.ToLower(strings.ReplaceAll(key, ".", "_"))] = true
+	if strings.Contains(key, ".") {
+		d.consumedKeys[strings.ToLower(strings.ReplaceAll(key, ".", "_"))] = true
+		d.consumedKeys[strings.ToLower(strings.ReplaceAll(key, ".", "__"))] = true
+	} else if strings.Contains(key, "_") {
+		d.consumedKeys[strings.ToLower(strings.ReplaceAll(key, "_", "."))] = true
+	}
 }
 
 func (d *Decoder) decodeFieldValue(v reflect.Value, raw any, tagInfo fieldTagInfo) error {

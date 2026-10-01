@@ -12,6 +12,7 @@ import (
 type Store struct {
 	mu         sync.RWMutex
 	values     map[string]any
+	rawKeys    map[string]string
 	strictKeys map[string]bool
 }
 
@@ -19,6 +20,7 @@ type Store struct {
 func NewStore(initial ...map[string]any) *Store {
 	s := &Store{
 		values:     make(map[string]any),
+		rawKeys:    make(map[string]string),
 		strictKeys: make(map[string]bool),
 	}
 	for _, m := range initial {
@@ -40,7 +42,11 @@ func (s *Store) MergeWithStrict(src map[string]any, trackStrict bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	flattenAndMerge("", src, s.values)
+	if s.rawKeys == nil {
+		s.rawKeys = make(map[string]string)
+	}
+	flattenAndMerge("", src, s.values, s.rawKeys)
+
 	if trackStrict {
 		if s.strictKeys == nil {
 			s.strictKeys = make(map[string]bool)
@@ -54,7 +60,10 @@ func (s *Store) Set(key string, value any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	setVariants(s.values, key, value)
+	if s.rawKeys == nil {
+		s.rawKeys = make(map[string]string)
+	}
+	setVariants(s.values, s.rawKeys, key, value)
 }
 
 // Get looks up a value by one or more candidate keys in order of precedence.
@@ -68,19 +77,13 @@ func (s *Store) Get(candidateKeys ...string) (any, string, bool) {
 		if k == "" {
 			continue
 		}
-		// 1. Direct match
-		if v, ok := s.values[k]; ok {
-			return v, k, true
-		}
-		// 2. Uppercase match
-		upper := strings.ToUpper(k)
-		if v, ok := s.values[upper]; ok {
-			return v, upper, true
-		}
-		// 3. Lowercase match
 		lower := strings.ToLower(k)
 		if v, ok := s.values[lower]; ok {
-			return v, lower, true
+			matched := s.rawKeys[lower]
+			if matched == "" {
+				matched = k
+			}
+			return v, matched, true
 		}
 	}
 
@@ -99,7 +102,13 @@ func (s *Store) All() map[string]any {
 	defer s.mu.RUnlock()
 
 	res := make(map[string]any, len(s.values))
-	maps.Copy(res, s.values)
+	for k, v := range s.values {
+		orig := s.rawKeys[k]
+		if orig == "" {
+			orig = k
+		}
+		res[orig] = v
+	}
 	return res
 }
 
@@ -137,7 +146,7 @@ func recordStrictKeys(prefix string, current map[string]any, dest map[string]boo
 	}
 }
 
-func flattenAndMerge(prefix string, current map[string]any, dest map[string]any) {
+func flattenAndMerge(prefix string, current map[string]any, dest map[string]any, rawKeys map[string]string) {
 	for k, v := range current {
 		var fullKey string
 		if prefix == "" {
@@ -147,26 +156,32 @@ func flattenAndMerge(prefix string, current map[string]any, dest map[string]any)
 		}
 
 		if subMap, ok := v.(map[string]any); ok {
-			setVariants(dest, fullKey, v)
-			flattenAndMerge(fullKey, subMap, dest)
+			setVariants(dest, rawKeys, fullKey, v)
+			flattenAndMerge(fullKey, subMap, dest, rawKeys)
 		} else {
-			setVariants(dest, fullKey, v)
+			setVariants(dest, rawKeys, fullKey, v)
 		}
 	}
 }
 
-func setVariants(dest map[string]any, key string, v any) {
-	dest[key] = v
-	dest[strings.ToUpper(key)] = v
-	dest[strings.ToLower(key)] = v
+func setVariants(dest map[string]any, rawKeys map[string]string, key string, v any) {
+	lower := strings.ToLower(key)
+	dest[lower] = v
+	if rawKeys != nil {
+		rawKeys[lower] = key
+	}
 
-	underscored := strings.ReplaceAll(key, ".", "_")
-	dest[underscored] = v
-	dest[strings.ToUpper(underscored)] = v
-	dest[strings.ToLower(underscored)] = v
+	if strings.Contains(lower, ".") {
+		underscored := strings.ReplaceAll(lower, ".", "_")
+		dest[underscored] = v
+		if rawKeys != nil {
+			rawKeys[underscored] = key
+		}
 
-	doubleUnderscore := strings.ReplaceAll(key, ".", "__")
-	dest[doubleUnderscore] = v
-	dest[strings.ToUpper(doubleUnderscore)] = v
-	dest[strings.ToLower(doubleUnderscore)] = v
+		doubleUnderscored := strings.ReplaceAll(lower, ".", "__")
+		dest[doubleUnderscored] = v
+		if rawKeys != nil {
+			rawKeys[doubleUnderscored] = key
+		}
+	}
 }
