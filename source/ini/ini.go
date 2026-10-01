@@ -60,6 +60,10 @@ func (s *Source) Name() string {
 
 // Load reads and parses the INI configuration.
 func (s *Source) Load(ctx context.Context) (map[string]any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	var r io.Reader
 	if s.reader != nil {
 		r = s.reader

@@ -1,6 +1,7 @@
 package goconf_test
 
 import (
+	"context"
 	"errors"
 	"os"
 	"strings"
@@ -461,3 +462,25 @@ func TestStrictUnknown_NoFalsePositivesFromAmbientEnv(t *testing.T) {
 		t.Fatalf("expected nil error for valid config with strict unknown, got: %v", err)
 	}
 }
+
+func TestLoadWithContextCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	var cfg struct {
+		Port int `key:"PORT"`
+	}
+
+	err := goconf.Load(&cfg,
+		goconf.WithContext(ctx),
+		goconf.WithDotEnvReader(strings.NewReader("PORT=8080\n")),
+	)
+	if err == nil {
+		t.Fatal("expected error on canceled context, got nil")
+	}
+
+	if !errors.Is(err, context.Canceled) && !strings.Contains(err.Error(), "canceled") {
+		t.Errorf("expected context.Canceled error, got: %v", err)
+	}
+}
+

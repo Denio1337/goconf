@@ -61,6 +61,10 @@ func (s *Source) Name() string {
 
 // Load reads and filters environment variables into a configuration map.
 func (s *Source) Load(ctx context.Context) (map[string]any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	environ := s.environ
 	if environ == nil {
 		environ = os.Environ()

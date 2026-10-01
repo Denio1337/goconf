@@ -77,6 +77,9 @@ func (l *Loader) Load(target any) error {
 	st := NewStore()
 
 	for _, src := range sources {
+		if err := l.ctx.Err(); err != nil {
+			return fmt.Errorf("loading canceled: %w", err)
+		}
 		data, err := src.Load(l.ctx)
 		if err != nil {
 			return fmt.Errorf("source %q failed to load: %w", src.Name(), err)
