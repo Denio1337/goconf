@@ -520,5 +520,3 @@ func TestWithoutAutoEnv(t *testing.T) {
 		t.Errorf("expected Port=9999 (OS env override), got %d", defaultCfg.Port)
 	}
 }
-
-

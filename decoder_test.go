@@ -352,4 +352,3 @@ func TestDecoderDirectTypedValues(t *testing.T) {
 		t.Errorf("TypedConfig mismatch: %+v", cfg)
 	}
 }
-

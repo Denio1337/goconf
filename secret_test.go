@@ -185,4 +185,3 @@ func TestSecretFieldErrorMasking(t *testing.T) {
 		t.Errorf("FieldError should have masked secret value, got: %s", errStr)
 	}
 }
-
