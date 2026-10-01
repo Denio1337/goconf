@@ -484,3 +484,41 @@ func TestLoadWithContextCanceled(t *testing.T) {
 	}
 }
 
+func TestWithoutAutoEnv(t *testing.T) {
+	os.Setenv("GOCONF_TEST_PORT", "9999")
+	defer os.Unsetenv("GOCONF_TEST_PORT")
+
+	var cfg struct {
+		Port int `key:"GOCONF_TEST_PORT"`
+	}
+
+	dotEnvContent := "GOCONF_TEST_PORT=8080\n"
+
+	// 1. With WithoutAutoEnv(): OS env is ignored
+	err := goconf.Load(&cfg,
+		goconf.WithDotEnvReader(strings.NewReader(dotEnvContent)),
+		goconf.WithoutAutoEnv(),
+	)
+	if err != nil {
+		t.Fatalf("unexpected load error: %v", err)
+	}
+	if cfg.Port != 8080 {
+		t.Errorf("expected Port=8080 (OS env disabled), got %d", cfg.Port)
+	}
+
+	// 2. Default behavior (auto-env enabled): OS env overrides
+	var defaultCfg struct {
+		Port int `key:"GOCONF_TEST_PORT"`
+	}
+	err = goconf.Load(&defaultCfg,
+		goconf.WithDotEnvReader(strings.NewReader(dotEnvContent)),
+	)
+	if err != nil {
+		t.Fatalf("unexpected load error: %v", err)
+	}
+	if defaultCfg.Port != 9999 {
+		t.Errorf("expected Port=9999 (OS env override), got %d", defaultCfg.Port)
+	}
+}
+
+

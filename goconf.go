@@ -25,11 +25,12 @@ import (
 
 // Loader manages sources, options, and decoding configuration into target structs.
 type Loader struct {
-	sources       []Source
-	prefix        string
-	strictUnknown bool
-	ignoreMissing bool
-	ctx           context.Context
+	sources        []Source
+	prefix         string
+	strictUnknown  bool
+	ignoreMissing  bool
+	disableAutoEnv bool
+	ctx            context.Context
 }
 
 // New creates a new Loader with the given options.
@@ -59,20 +60,22 @@ func (l *Loader) Load(target any) error {
 		sources = append(sources, dotenv.New(".env", dotenv.WithIgnoreMissing(true)))
 	}
 
-	// Always ensure an env source is appended at the end with the highest priority
-	var envSource Source
-	filtered := make([]Source, 0, len(sources))
-	for _, s := range sources {
-		if _, ok := s.(*env.Source); ok {
-			envSource = s
-		} else {
-			filtered = append(filtered, s)
+	// Append an env source at the end with highest priority unless auto-env is disabled
+	if !l.disableAutoEnv {
+		var envSource Source
+		filtered := make([]Source, 0, len(sources))
+		for _, s := range sources {
+			if _, ok := s.(*env.Source); ok {
+				envSource = s
+			} else {
+				filtered = append(filtered, s)
+			}
 		}
+		if envSource == nil {
+			envSource = env.New()
+		}
+		sources = append(filtered, envSource)
 	}
-	if envSource == nil {
-		envSource = env.New()
-	}
-	sources = append(filtered, envSource)
 
 	st := NewStore()
 

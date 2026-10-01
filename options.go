@@ -123,6 +123,21 @@ func WithEnvPrefix(prefix string) Option {
 	}
 }
 
+// WithoutAutoEnv disables automatically appending OS environment variables as a configuration source.
+// By default, goconf automatically loads OS environment variables with highest priority.
+func WithoutAutoEnv() Option {
+	return func(l *Loader) {
+		l.disableAutoEnv = true
+	}
+}
+
+// WithAutoEnv controls whether OS environment variables are automatically loaded.
+func WithAutoEnv(enable bool) Option {
+	return func(l *Loader) {
+		l.disableAutoEnv = !enable
+	}
+}
+
 // WithStrictUnknown enables or disables error reporting for keys found in sources
 // that do not match any field in the target struct.
 func WithStrictUnknown(strict bool) Option {
