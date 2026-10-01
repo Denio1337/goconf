@@ -6,11 +6,6 @@ import (
 	"log/slog"
 )
 
-// secretMarker is an unexported interface used by the decoder to recognize Secret[T] fields.
-type secretMarker interface {
-	isSecret()
-}
-
 // Secret wraps a value of any type T to protect sensitive information (such as passwords,
 // tokens, and API keys) from accidental leakage in logs, fmt formatting, and JSON payloads.
 // All string representations (%v, %+v, %#v, %s, %q) and json.Marshal output "[SECRET]".
@@ -18,13 +13,8 @@ type Secret[T any] struct {
 	value T
 }
 
-// NewSecret creates a new Secret wrapping value.
-func NewSecret[T any](value T) Secret[T] {
-	return Secret[T]{value: value}
-}
-
-// isSecret implements secretMarker.
-func (s Secret[T]) isSecret() {}
+// IsSecret implements decoder.SecretMarker.
+func (s Secret[T]) IsSecret() {}
 
 // Set updates the secret value.
 func (s *Secret[T]) Set(val T) {

@@ -227,12 +227,19 @@ func (s *ServerConfig) Validate() error {
 
 ## Extensible Source Architecture
 
-Custom sources (e.g., etcd, HashiCorp Vault, AWS Secrets Manager, Kubernetes ConfigMaps) can be added by implementing the `Source` interface:
+Custom sources (e.g., etcd, HashiCorp Vault, AWS Secrets Manager, Kubernetes ConfigMaps) only need to implement the single-method `Source` interface:
 
 ```go
 type Source interface {
-    Name() string
     Load(ctx context.Context) (map[string]any, error)
+}
+```
+
+Optionally, implement `NamedSource` to provide a custom source name in error messages:
+
+```go
+type NamedSource interface {
+	Name() string
 }
 ```
 
@@ -241,10 +248,6 @@ type Source interface {
 ```go
 type CustomSource struct {
     endpoint string
-}
-
-func (s *CustomSource) Name() string {
-    return "custom:" + s.endpoint
 }
 
 func (s *CustomSource) Load(ctx context.Context) (map[string]any, error) {

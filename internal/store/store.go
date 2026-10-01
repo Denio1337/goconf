@@ -1,4 +1,6 @@
-package goconf
+// Package store provides an in-memory, thread-safe configuration store
+// supporting case-insensitive key lookup, delimiter normalization, and strict key tracking.
+package store
 
 import (
 	"maps"
@@ -16,8 +18,8 @@ type Store struct {
 	strictKeys map[string]bool
 }
 
-// NewStore initializes a new configuration store, optionally populated with initial key-value maps.
-func NewStore(initial ...map[string]any) *Store {
+// New initializes a new configuration store, optionally populated with initial key-value maps.
+func New(initial ...map[string]any) *Store {
 	s := &Store{
 		values:     make(map[string]any),
 		rawKeys:    make(map[string]string),

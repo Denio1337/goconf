@@ -223,12 +223,19 @@ func (s *ServerConfig) Validate() error {
 
 ## Расширяемая архитектура источников
 
-Пользовательские провайдеры (etcd, HashiCorp Vault, AWS Secrets Manager, Kubernetes ConfigMaps) реализуют интерфейс `Source`:
+Пользовательские провайдеры (etcd, HashiCorp Vault, AWS Secrets Manager, Kubernetes ConfigMaps) реализуют минималистичный интерфейс `Source`, состоящий всего из одного метода:
 
 ```go
 type Source interface {
-    Name() string
     Load(ctx context.Context) (map[string]any, error)
+}
+```
+
+Опционально можно реализовать интерфейс `NamedSource` для отображения кастомного имени источника в отчётах об ошибках:
+
+```go
+type NamedSource interface {
+	Name() string
 }
 ```
 
@@ -237,10 +244,6 @@ type Source interface {
 ```go
 type CustomSource struct {
     endpoint string
-}
-
-func (s *CustomSource) Name() string {
-    return "custom:" + s.endpoint
 }
 
 func (s *CustomSource) Load(ctx context.Context) (map[string]any, error) {

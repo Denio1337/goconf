@@ -12,16 +12,22 @@
 //     by implementing the simple Source interface.
 //   - DotEnv (.env) Support: Full support for quoted strings, multiline values, escapes,
 //     inline comments, and variable interpolation (${VAR:-default}).
-//   - Minimal Dependencies: Core library uses the Go standard library only, with lightweight optional modules for YAML and TOML.
+//   - Minimal Dependencies: Core library uses the Go standard library only, with lightweight modules for YAML and TOML.
 package goconf
 
 import (
 	"context"
 	"fmt"
 
+	"github.com/Denio1337/goconf/internal/decoder"
+	"github.com/Denio1337/goconf/internal/store"
 	"github.com/Denio1337/goconf/source/dotenv"
 	"github.com/Denio1337/goconf/source/env"
 )
+
+// Validator is an optional interface that structs or fields can implement
+// to execute custom business-level validation logic after decoding.
+type Validator = decoder.Validator
 
 // Loader manages sources, options, and decoding configuration into target structs.
 type Loader struct {
@@ -35,11 +41,6 @@ type Loader struct {
 
 // New creates a new Loader with the given options.
 func New(opts ...Option) *Loader {
-	return NewLoader(opts...)
-}
-
-// NewLoader creates a new Loader with the given options.
-func NewLoader(opts ...Option) *Loader {
 	l := &Loader{
 		ctx: context.Background(),
 	}
@@ -77,7 +78,7 @@ func (l *Loader) Load(target any) error {
 		sources = append(filtered, envSource)
 	}
 
-	st := NewStore()
+	st := store.New()
 
 	for _, src := range sources {
 		if err := l.ctx.Err(); err != nil {
@@ -85,19 +86,29 @@ func (l *Loader) Load(target any) error {
 		}
 		data, err := src.Load(l.ctx)
 		if err != nil {
-			return fmt.Errorf("source %q failed to load: %w", src.Name(), err)
+			return fmt.Errorf("source %q failed to load: %w", sourceName(src), err)
 		}
 		// Ambient OS environment variables ("env") should not be tracked as strict unknown keys
 		// to prevent unconsumed OS-level variables (e.g. PATH, HOME) from triggering false positives.
-		isAmbientEnv := src.Name() == "env"
+		isAmbientEnv := false
+		if n, ok := src.(NamedSource); ok && n.Name() == "env" {
+			isAmbientEnv = true
+		}
 		st.MergeWithStrict(data, !isAmbientEnv)
 	}
 
-	decoder := NewDecoder(st)
-	decoder.SetPrefix(l.prefix)
-	decoder.SetStrictUnknown(l.strictUnknown)
+	dec := decoder.New(st)
+	dec.SetPrefix(l.prefix)
+	dec.SetStrictUnknown(l.strictUnknown)
 
-	return decoder.Decode(target)
+	return dec.Decode(target)
+}
+
+// MustLoad behaves like Load, but panics if an error occurs.
+func (l *Loader) MustLoad(target any) {
+	if err := l.Load(target); err != nil {
+		panic(fmt.Sprintf("goconf: %v", err))
+	}
 }
 
 // Load is a top-level convenience function that initializes a Loader, applies options,
@@ -105,24 +116,22 @@ func (l *Loader) Load(target any) error {
 // When called without explicit sources, it loads .env (ignoring missing file by default)
 // and OS environment variables, giving primary priority to environment variables.
 // target must be a non-nil pointer to a struct.
-//
-// Example:
-//
-//	type Config struct {
-//	    Port int `key:"PORT" default:"8080"`
-//	}
-//	var cfg Config
-//	if err := goconf.Load(&cfg); err != nil {
-//	    log.Fatalf("failed to load configuration: %v", err)
-//	}
 func Load(target any, opts ...Option) error {
-	return NewLoader(opts...).Load(target)
+	return New(opts...).Load(target)
 }
 
 // MustLoad behaves like Load, but panics if an error occurs.
 // Useful during application bootstrapping (e.g. in func main or init).
 func MustLoad(target any, opts ...Option) {
-	if err := Load(target, opts...); err != nil {
-		panic(fmt.Sprintf("goconf: %v", err))
+	New(opts...).MustLoad(target)
+}
+
+func sourceName(s Source) string {
+	if n, ok := s.(NamedSource); ok {
+		return n.Name()
 	}
+	if str, ok := s.(fmt.Stringer); ok {
+		return str.String()
+	}
+	return fmt.Sprintf("%T", s)
 }

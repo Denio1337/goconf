@@ -21,7 +21,12 @@ type SecretTestConfig struct {
 }
 
 func TestSecretFormatting(t *testing.T) {
-	sec := goconf.NewSecret("super-secret-password-123")
+	var cfg SecretTestConfig
+	err := goconf.Load(&cfg, goconf.WithDotEnvReader(strings.NewReader("PASSWORD=super-secret-password-123\n")))
+	if err != nil {
+		t.Fatalf("unexpected load error: %v", err)
+	}
+	sec := cfg.Password
 
 	// Raw values
 	if sec.Value() != "super-secret-password-123" {
@@ -143,7 +148,12 @@ func TestSecretRequiredValidation(t *testing.T) {
 }
 
 func TestSecretMarshalText(t *testing.T) {
-	sec := goconf.NewSecret("p@ssw0rd")
+	var cfg SecretTestConfig
+	err := goconf.Load(&cfg, goconf.WithDotEnvReader(strings.NewReader("PASSWORD=p@ssw0rd\n")))
+	if err != nil {
+		t.Fatalf("unexpected load error: %v", err)
+	}
+	sec := cfg.Password
 
 	// Test MarshalText
 	text, err := sec.MarshalText()
@@ -156,7 +166,12 @@ func TestSecretMarshalText(t *testing.T) {
 }
 
 func TestSecretSlog(t *testing.T) {
-	sec := goconf.NewSecret("p@ssw0rd")
+	var cfg SecretTestConfig
+	err := goconf.Load(&cfg, goconf.WithDotEnvReader(strings.NewReader("PASSWORD=p@ssw0rd\n")))
+	if err != nil {
+		t.Fatalf("unexpected load error: %v", err)
+	}
+	sec := cfg.Password
 
 	// Test slog.LogValuer
 	val := sec.LogValue()

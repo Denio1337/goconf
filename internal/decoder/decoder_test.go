@@ -1,4 +1,4 @@
-package goconf
+package decoder_test
 
 import (
 	"errors"
@@ -6,6 +6,9 @@ import (
 	"net/url"
 	"testing"
 	"time"
+
+	"github.com/Denio1337/goconf/internal/decoder"
+	"github.com/Denio1337/goconf/internal/store"
 )
 
 type CustomPort int
@@ -65,7 +68,7 @@ func TestDecoderKeyTagAndPrefix(t *testing.T) {
 		FlatConfig   FlatSettings   `prefix:""` // explicitly empty prefix
 	}
 
-	st := NewStore()
+	st := store.New()
 	st.Merge(map[string]any{
 		"APP_NAME":     "TestApp",
 		"DEBUG":        "true",
@@ -85,7 +88,7 @@ func TestDecoderKeyTagAndPrefix(t *testing.T) {
 	})
 
 	var cfg AppConfig
-	d := NewDecoder(st)
+	d := decoder.New(st)
 	if err := d.Decode(&cfg); err != nil {
 		t.Fatalf("unexpected decode error: %v", err)
 	}
@@ -147,18 +150,17 @@ func TestPrefixChainingAndKeyPrefix(t *testing.T) {
 	}
 
 	type Config struct {
-		// When key:"SERVER" is on struct, it acts as prefix "SERVER_"
 		Server ServerConfig `key:"SERVER"`
 	}
 
-	st := NewStore()
+	st := store.New()
 	st.Merge(map[string]any{
 		"SERVER_HOST": "api.domain",
 		"SERVER_PORT": "8080",
 	})
 
 	var cfg Config
-	d := NewDecoder(st)
+	d := decoder.New(st)
 	if err := d.Decode(&cfg); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -174,14 +176,14 @@ func TestRootPrefix(t *testing.T) {
 		Port int    `key:"PORT"`
 	}
 
-	st := NewStore()
+	st := store.New()
 	st.Merge(map[string]any{
 		"MYAPP_HOST": "localhost",
 		"MYAPP_PORT": "3000",
 	})
 
 	var cfg Config
-	d := NewDecoder(st)
+	d := decoder.New(st)
 	d.SetPrefix("MYAPP_")
 	if err := d.Decode(&cfg); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -198,13 +200,13 @@ func TestKeyTagInlineOptions(t *testing.T) {
 		Port int    `key:"PORT,default=9000"`
 	}
 
-	st := NewStore()
+	st := store.New()
 	st.Merge(map[string]any{
 		"HOST": "api.local",
 	})
 
 	var cfg Config
-	d := NewDecoder(st)
+	d := decoder.New(st)
 	if err := d.Decode(&cfg); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -223,23 +225,22 @@ func TestDecoderStrictValidationErrors(t *testing.T) {
 		Ports    []int         `key:"PORTS"`
 	}
 
-	st := NewStore()
+	st := store.New()
 	st.Merge(map[string]any{
 		"PORT":    "not-a-number",
 		"TIMEOUT": "invalid-duration",
 		"ACTIVE":  "not-a-boolean",
 		"PORTS":   "10,twenty,30",
-		// SECRET is intentionally missing
 	})
 
 	var cfg ServerConfig
-	d := NewDecoder(st)
+	d := decoder.New(st)
 	err := d.Decode(&cfg)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
 
-	var valErr *ValidationError
+	var valErr *decoder.ValidationError
 	if !errors.As(err, &valErr) {
 		t.Fatalf("expected *ValidationError, got %T: %v", err, err)
 	}
@@ -250,38 +251,38 @@ func TestDecoderStrictValidationErrors(t *testing.T) {
 }
 
 func TestDecoderCustomValidator(t *testing.T) {
-	st := NewStore()
+	st := store.New()
 	st.Merge(map[string]any{
 		"MAX_WORKERS": "-5",
 	})
 
 	var cfg ValidatedConfig
-	d := NewDecoder(st)
+	d := decoder.New(st)
 	err := d.Decode(&cfg)
 	if err == nil {
 		t.Fatal("expected validation error, got nil")
 	}
 
-	if !errors.Is(err, ErrValidationFailed) {
+	if !errors.Is(err, decoder.ErrValidationFailed) {
 		t.Errorf("expected ErrValidationFailed, got %v", err)
 	}
 }
 
 func TestDecoderInvalidTarget(t *testing.T) {
-	st := NewStore()
-	d := NewDecoder(st)
+	st := store.New()
+	d := decoder.New(st)
 
-	if err := d.Decode(nil); !errors.Is(err, ErrInvalidTarget) {
+	if err := d.Decode(nil); !errors.Is(err, decoder.ErrInvalidTarget) {
 		t.Errorf("expected ErrInvalidTarget on nil, got %v", err)
 	}
 
 	var notPtr struct{}
-	if err := d.Decode(notPtr); !errors.Is(err, ErrInvalidTarget) {
+	if err := d.Decode(notPtr); !errors.Is(err, decoder.ErrInvalidTarget) {
 		t.Errorf("expected ErrInvalidTarget on non-pointer, got %v", err)
 	}
 
 	var notStruct int
-	if err := d.Decode(&notStruct); !errors.Is(err, ErrInvalidTarget) {
+	if err := d.Decode(&notStruct); !errors.Is(err, decoder.ErrInvalidTarget) {
 		t.Errorf("expected ErrInvalidTarget on pointer to int, got %v", err)
 	}
 }
@@ -293,7 +294,7 @@ func TestDecoderRawSliceAndMap(t *testing.T) {
 		Meta   map[string]int `key:"META"`
 	}
 
-	st := NewStore()
+	st := store.New()
 	st.Merge(map[string]any{
 		"TAGS":   []any{"prod", "stable"},
 		"SCORES": []int{10, 20, 30},
@@ -304,7 +305,7 @@ func TestDecoderRawSliceAndMap(t *testing.T) {
 	})
 
 	var cfg Config
-	d := NewDecoder(st)
+	d := decoder.New(st)
 	if err := d.Decode(&cfg); err != nil {
 		t.Fatalf("unexpected decode error: %v", err)
 	}
@@ -331,7 +332,7 @@ func TestDecoderDirectTypedValues(t *testing.T) {
 		FloatAsInt int           `key:"FLOAT_AS_INT"`
 	}
 
-	st := NewStore()
+	st := store.New()
 	st.Merge(map[string]any{
 		"INT_VAL":      42,
 		"INT64_VAL":    int64(100500),
@@ -339,11 +340,11 @@ func TestDecoderDirectTypedValues(t *testing.T) {
 		"FLOAT_VAL":    3.14159,
 		"BOOL_VAL":     true,
 		"DURATION":     5 * time.Minute,
-		"FLOAT_AS_INT": float64(8080), // whole number float from JSON
+		"FLOAT_AS_INT": float64(8080),
 	})
 
 	var cfg TypedConfig
-	d := NewDecoder(st)
+	d := decoder.New(st)
 	if err := d.Decode(&cfg); err != nil {
 		t.Fatalf("unexpected decode error: %v", err)
 	}

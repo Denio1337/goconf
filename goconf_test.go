@@ -242,6 +242,27 @@ func TestMustLoadPanic(t *testing.T) {
 	goconf.MustLoad(&cfg, goconf.WithDotEnvReader(strings.NewReader("PORT=1234\n")))
 }
 
+func TestLoaderInstance(t *testing.T) {
+	loader := goconf.New(goconf.WithDotEnvReader(strings.NewReader("PORT=8081\nSECRET=mytoken\n")))
+	var cfg ServerConfig
+	if err := loader.Load(&cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Port != 8081 {
+		t.Errorf("expected port 8081, got %d", cfg.Port)
+	}
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Errorf("expected loader.MustLoad to panic")
+		}
+	}()
+	invalidLoader := goconf.New(goconf.WithDotEnvReader(strings.NewReader("PORT=invalid\n")))
+	var cfg2 ServerConfig
+	invalidLoader.MustLoad(&cfg2)
+}
+
 func TestMissingDotEnvFile(t *testing.T) {
 	var cfg ServerConfig
 	// Default behavior should fail if file is specified and missing
@@ -518,5 +539,51 @@ func TestWithoutAutoEnv(t *testing.T) {
 	}
 	if defaultCfg.Port != 9999 {
 		t.Errorf("expected Port=9999 (OS env override), got %d", defaultCfg.Port)
+	}
+}
+
+type minimalSource struct {
+	data map[string]any
+	err  error
+}
+
+func (m *minimalSource) Load(ctx context.Context) (map[string]any, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.data, nil
+}
+
+func TestCustomMinimalSource(t *testing.T) {
+	src := &minimalSource{
+		data: map[string]any{
+			"HOST": "custom-host",
+			"PORT": 7777,
+		},
+	}
+
+	var cfg struct {
+		Host string `key:"HOST"`
+		Port int    `key:"PORT"`
+	}
+
+	err := goconf.Load(&cfg, goconf.WithSource(src), goconf.WithoutAutoEnv())
+	if err != nil {
+		t.Fatalf("unexpected load error: %v", err)
+	}
+	if cfg.Host != "custom-host" || cfg.Port != 7777 {
+		t.Errorf("expected custom values, got host=%q, port=%d", cfg.Host, cfg.Port)
+	}
+
+	// Test error formatting with minimal source (no Name() method)
+	failingSrc := &minimalSource{
+		err: errors.New("connection failed"),
+	}
+	err = goconf.Load(&cfg, goconf.WithSource(failingSrc))
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "*goconf_test.minimalSource") || !strings.Contains(err.Error(), "connection failed") {
+		t.Errorf("expected formatted source type error, got: %v", err)
 	}
 }
