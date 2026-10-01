@@ -36,11 +36,6 @@ func (s Secret[T]) Value() T {
 	return s.value
 }
 
-// Unmask returns the raw underlying secret value. Alias for Value().
-func (s Secret[T]) Unmask() T {
-	return s.value
-}
-
 // String implements fmt.Stringer, returning "[SECRET]".
 func (s Secret[T]) String() string {
 	return "[SECRET]"

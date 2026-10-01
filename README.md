@@ -134,7 +134,7 @@ Raw value via .Value()      : super-secret-production-password
   - Pointers (allocated only when a corresponding value is present)
   - Nested and embedded structs with prefix inheritance
   - Custom deserialization via `encoding.TextUnmarshaler`
-- 🔒 **Sensitive Data Protection (`Secret[T]`)**: Generic wrapper protecting passwords, tokens, and API keys. Values are masked as `[SECRET]` in `fmt.Print*`, `log.Print*`, `log/slog` structured logging, text/JSON serialization, and validation error reports, while safely accessible via `.Value()` or `.Unmask()`.
+- 🔒 **Sensitive Data Protection (`Secret[T]`)**: Generic wrapper protecting passwords, tokens, and API keys. Values are masked as `[SECRET]` in `fmt.Print*`, `log.Print*`, `log/slog` structured logging, text/JSON serialization, and validation error reports, while safely accessible via `.Value()`.
 - ✅ **Custom Validation (`Validator`)**: Domain-level business rule validation by implementing `Validate() error` on configuration structs, invoked automatically upon decoding.
 - 🪶 **Minimal Dependencies**: The core library relies strictly on the Go standard library, pulling only two lightweight, battle-tested packages for format parsing: `gopkg.in/yaml.v3` (for YAML) and `github.com/pelletier/go-toml/v2` (for TOML). Zero bloat.
 
@@ -167,7 +167,6 @@ Tags are defined as exported constants in [tags.go](tags.go):
 | `goconf.TagPrefix` | `prefix` | Key prefix for nested struct fields | `prefix:"DB_"` |
 | `goconf.TagSep` | `sep` | Delimiter for slices and maps (default: `,`) | `sep:";"` |
 | `goconf.TagLayout` | `layout` | Layout string for parsing `time.Time` | `layout:"2006-01-02"` |
-| `goconf.TagSecret` | `secret` | Marks field as sensitive, masking values in error reports | `secret:"true"` |
 | `goconf.TagDescription` | `doc` | Field description / help documentation | `doc:"TCP port"` |
 
 ### Prefix Rules and Inheritance
@@ -180,7 +179,7 @@ Tags are defined as exported constants in [tags.go](tags.go):
 
 ## Error Inspection & Multi-Error Reporting
 
-Instead of failing on the first error, `goconf` accumulates all schema and type mismatches into a single structured report. Sensitive fields (`Secret[T]` or tagged with `secret:"true"`) have their values safely masked as `[SECRET]` in error messages to avoid accidental log leaks. See [example](examples/validation_errors/main.go).
+Instead of failing on the first error, `goconf` accumulates all schema and type mismatches into a single structured report. Sensitive fields `Secret[T]` have their values safely masked as `[SECRET]` in error messages to avoid accidental log leaks. See [example](examples/validation_errors/main.go).
 
 ## Protecting Sensitive Data (`Secret[T]`)
 
@@ -203,8 +202,8 @@ func main() {
     log.Println(cfg)              // Output: {localhost [SECRET] 5432}
     slog.Info("loaded", "db", cfg)// Masked in structured logs!
 
-    // Access the raw secret value safely when needed via .Value() or .Unmask():
-    rawPassword := cfg.Password.Unmask() // or cfg.Password.Value()
+    // Access the raw secret value safely when needed via .Value()
+    rawPassword := cfg.Password.Value()
     db.Connect(rawPassword)
 }
 ```

@@ -281,9 +281,6 @@ func parseFieldTag(field reflect.StructField) fieldTagInfo {
 	}
 
 	// 6. Secret tag or Secret[T] wrapper
-	if sec, ok := field.Tag.Lookup(TagSecret); ok {
-		info.isSecret = strings.EqualFold(sec, "true") || sec == "1"
-	}
 	if isSecretType(field.Type) {
 		info.isSecret = true
 	}

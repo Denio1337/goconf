@@ -142,13 +142,8 @@ func TestSecretRequiredValidation(t *testing.T) {
 	}
 }
 
-func TestSecretUnmaskAndMarshalTextAndSlog(t *testing.T) {
+func TestSecretMarshalText(t *testing.T) {
 	sec := goconf.NewSecret("p@ssw0rd")
-
-	// Test Unmask
-	if sec.Unmask() != "p@ssw0rd" {
-		t.Errorf("expected Unmask() to return p@ssw0rd, got %q", sec.Unmask())
-	}
 
 	// Test MarshalText
 	text, err := sec.MarshalText()
@@ -158,6 +153,10 @@ func TestSecretUnmaskAndMarshalTextAndSlog(t *testing.T) {
 	if string(text) != "[SECRET]" {
 		t.Errorf("MarshalText: expected [SECRET], got %s", string(text))
 	}
+}
+
+func TestSecretSlog(t *testing.T) {
+	sec := goconf.NewSecret("p@ssw0rd")
 
 	// Test slog.LogValuer
 	val := sec.LogValue()
