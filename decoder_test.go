@@ -319,3 +319,37 @@ func TestDecoderRawSliceAndMap(t *testing.T) {
 		t.Errorf("Meta mismatch: %v", cfg.Meta)
 	}
 }
+
+func TestDecoderDirectTypedValues(t *testing.T) {
+	type TypedConfig struct {
+		IntVal     int           `key:"INT_VAL"`
+		Int64Val   int64         `key:"INT64_VAL"`
+		UintVal    uint          `key:"UINT_VAL"`
+		FloatVal   float64       `key:"FLOAT_VAL"`
+		BoolVal    bool          `key:"BOOL_VAL"`
+		Duration   time.Duration `key:"DURATION"`
+		FloatAsInt int           `key:"FLOAT_AS_INT"`
+	}
+
+	st := NewStore()
+	st.Merge(map[string]any{
+		"INT_VAL":      42,
+		"INT64_VAL":    int64(100500),
+		"UINT_VAL":     uint(77),
+		"FLOAT_VAL":    3.14159,
+		"BOOL_VAL":     true,
+		"DURATION":     5 * time.Minute,
+		"FLOAT_AS_INT": float64(8080), // whole number float from JSON
+	})
+
+	var cfg TypedConfig
+	d := NewDecoder(st)
+	if err := d.Decode(&cfg); err != nil {
+		t.Fatalf("unexpected decode error: %v", err)
+	}
+
+	if cfg.IntVal != 42 || cfg.Int64Val != 100500 || cfg.UintVal != 77 || cfg.FloatVal != 3.14159 || !cfg.BoolVal || cfg.Duration != 5*time.Minute || cfg.FloatAsInt != 8080 {
+		t.Errorf("TypedConfig mismatch: %+v", cfg)
+	}
+}
+

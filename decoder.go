@@ -2,7 +2,9 @@ package goconf
 
 import (
 	"encoding"
+	"encoding/json"
 	"fmt"
+	"math"
 	"net"
 	"net/url"
 	"reflect"
@@ -379,7 +381,11 @@ func (d *Decoder) decodeFieldValue(v reflect.Value, raw any, tagInfo fieldTagInf
 	// Special types that shouldn't be handled as generic slices or maps:
 	// net.IP is defined as []byte in the stdlib, but should be decoded as an IP string
 	if v.Type() == reflect.TypeOf(net.IP{}) {
-		return d.decodeField(v, fmt.Sprint(raw), tagInfo)
+		rawStr, ok := raw.(string)
+		if !ok {
+			rawStr = fmt.Sprint(raw)
+		}
+		return d.decodeField(v, rawStr, tagInfo)
 	}
 
 	// Types implementing TextUnmarshaler or BinaryUnmarshaler
@@ -387,7 +393,11 @@ func (d *Decoder) decodeFieldValue(v reflect.Value, raw any, tagInfo fieldTagInf
 	binaryUnmarshaler := reflect.TypeFor[encoding.BinaryUnmarshaler]()
 	if v.Type().Implements(textUnmarshaler) || (v.CanAddr() && v.Addr().Type().Implements(textUnmarshaler)) ||
 		v.Type().Implements(binaryUnmarshaler) || (v.CanAddr() && v.Addr().Type().Implements(binaryUnmarshaler)) {
-		return d.decodeField(v, fmt.Sprint(raw), tagInfo)
+		rawStr, ok := raw.(string)
+		if !ok {
+			rawStr = fmt.Sprint(raw)
+		}
+		return d.decodeField(v, rawStr, tagInfo)
 	}
 
 	// 1. If target is slice
@@ -405,7 +415,11 @@ func (d *Decoder) decodeFieldValue(v reflect.Value, raw any, tagInfo fieldTagInf
 			v.Set(slice)
 			return nil
 		}
-		return d.decodeSlice(v, fmt.Sprint(raw), tagInfo)
+		rawStr, ok := raw.(string)
+		if !ok {
+			rawStr = fmt.Sprint(raw)
+		}
+		return d.decodeSlice(v, rawStr, tagInfo)
 	}
 
 	// 2. If target is map
@@ -430,7 +444,11 @@ func (d *Decoder) decodeFieldValue(v reflect.Value, raw any, tagInfo fieldTagInf
 			v.Set(mapVal)
 			return nil
 		}
-		return d.decodeMap(v, fmt.Sprint(raw), tagInfo)
+		rawStr, ok := raw.(string)
+		if !ok {
+			rawStr = fmt.Sprint(raw)
+		}
+		return d.decodeMap(v, rawStr, tagInfo)
 	}
 
 	// 3. Pointer types
@@ -444,8 +462,24 @@ func (d *Decoder) decodeFieldValue(v reflect.Value, raw any, tagInfo fieldTagInf
 		return nil
 	}
 
-	// 4. Fallback to scalar / primitive / unmarshaler types via string conversion
-	return d.decodeField(v, fmt.Sprint(raw), tagInfo)
+	// 4. Direct assignment if raw value is already assignable to target type
+	rawVal := reflect.ValueOf(raw)
+	if rawVal.IsValid() && rawVal.Type().AssignableTo(v.Type()) {
+		v.Set(rawVal)
+		return nil
+	}
+
+	// 5. Fast typed conversions for numeric, boolean, and time values without string roundtrip
+	if err, handled := tryDirectTypeConversion(v, raw); handled {
+		return err
+	}
+
+	// 6. String-based fallback (for .env, OS env vars, and custom string unmarshalers)
+	rawStr, ok := raw.(string)
+	if !ok {
+		rawStr = fmt.Sprint(raw)
+	}
+	return d.decodeField(v, rawStr, tagInfo)
 }
 
 func (d *Decoder) decodeField(v reflect.Value, raw string, tagInfo fieldTagInfo) error {
@@ -749,4 +783,240 @@ func toScreamingSnake(s string) string {
 	}
 
 	return sb.String()
+}
+
+func tryDirectTypeConversion(v reflect.Value, raw any) (error, bool) {
+	switch v.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if v.Type() == reflect.TypeFor[time.Duration]() {
+			if d, ok := raw.(time.Duration); ok {
+				v.SetInt(int64(d))
+				return nil, true
+			}
+			return nil, false
+		}
+
+		if num, ok := raw.(json.Number); ok {
+			i, err := num.Int64()
+			if err != nil {
+				return fmt.Errorf("expected integer, got %q: %w", num.String(), err), true
+			}
+			if v.OverflowInt(i) {
+				return fmt.Errorf("integer overflow for %s: %d", v.Type(), i), true
+			}
+			v.SetInt(i)
+			return nil, true
+		}
+
+		switch r := raw.(type) {
+		case int:
+			i := int64(r)
+			if v.OverflowInt(i) {
+				return fmt.Errorf("integer overflow for %s: %d", v.Type(), i), true
+			}
+			v.SetInt(i)
+			return nil, true
+		case int64:
+			if v.OverflowInt(r) {
+				return fmt.Errorf("integer overflow for %s: %d", v.Type(), r), true
+			}
+			v.SetInt(r)
+			return nil, true
+		case int32:
+			v.SetInt(int64(r))
+			return nil, true
+		case int16:
+			v.SetInt(int64(r))
+			return nil, true
+		case int8:
+			v.SetInt(int64(r))
+			return nil, true
+		case uint:
+			if uint64(r) > uint64(math.MaxInt64) || v.OverflowInt(int64(r)) {
+				return fmt.Errorf("integer overflow for %s: %d", v.Type(), r), true
+			}
+			v.SetInt(int64(r))
+			return nil, true
+		case uint64:
+			if r > uint64(math.MaxInt64) || v.OverflowInt(int64(r)) {
+				return fmt.Errorf("integer overflow for %s: %d", v.Type(), r), true
+			}
+			v.SetInt(int64(r))
+			return nil, true
+		case uint32:
+			v.SetInt(int64(r))
+			return nil, true
+		case uint16:
+			v.SetInt(int64(r))
+			return nil, true
+		case uint8:
+			v.SetInt(int64(r))
+			return nil, true
+		case float64:
+			if r == math.Trunc(r) {
+				i := int64(r)
+				if v.OverflowInt(i) {
+					return fmt.Errorf("integer overflow for %s: %d", v.Type(), i), true
+				}
+				v.SetInt(i)
+				return nil, true
+			}
+		case float32:
+			if float64(r) == math.Trunc(float64(r)) {
+				i := int64(r)
+				if v.OverflowInt(i) {
+					return fmt.Errorf("integer overflow for %s: %d", v.Type(), i), true
+				}
+				v.SetInt(i)
+				return nil, true
+			}
+		}
+
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		if num, ok := raw.(json.Number); ok {
+			u, err := strconv.ParseUint(num.String(), 10, v.Type().Bits())
+			if err != nil {
+				return fmt.Errorf("expected unsigned integer, got %q: %w", num.String(), err), true
+			}
+			v.SetUint(u)
+			return nil, true
+		}
+
+		switch r := raw.(type) {
+		case uint:
+			u := uint64(r)
+			if v.OverflowUint(u) {
+				return fmt.Errorf("unsigned integer overflow for %s: %d", v.Type(), u), true
+			}
+			v.SetUint(u)
+			return nil, true
+		case uint64:
+			if v.OverflowUint(r) {
+				return fmt.Errorf("unsigned integer overflow for %s: %d", v.Type(), r), true
+			}
+			v.SetUint(r)
+			return nil, true
+		case uint32:
+			v.SetUint(uint64(r))
+			return nil, true
+		case uint16:
+			v.SetUint(uint64(r))
+			return nil, true
+		case uint8:
+			v.SetUint(uint64(r))
+			return nil, true
+		case int:
+			if r < 0 || v.OverflowUint(uint64(r)) {
+				return fmt.Errorf("cannot convert negative integer %d to %s", r, v.Type()), true
+			}
+			v.SetUint(uint64(r))
+			return nil, true
+		case int64:
+			if r < 0 || v.OverflowUint(uint64(r)) {
+				return fmt.Errorf("cannot convert negative integer %d to %s", r, v.Type()), true
+			}
+			v.SetUint(uint64(r))
+			return nil, true
+		case int32:
+			if r < 0 {
+				return fmt.Errorf("cannot convert negative integer %d to %s", r, v.Type()), true
+			}
+			v.SetUint(uint64(r))
+			return nil, true
+		case int16:
+			if r < 0 {
+				return fmt.Errorf("cannot convert negative integer %d to %s", r, v.Type()), true
+			}
+			v.SetUint(uint64(r))
+			return nil, true
+		case int8:
+			if r < 0 {
+				return fmt.Errorf("cannot convert negative integer %d to %s", r, v.Type()), true
+			}
+			v.SetUint(uint64(r))
+			return nil, true
+		case float64:
+			if r >= 0 && r == math.Trunc(r) {
+				u := uint64(r)
+				if v.OverflowUint(u) {
+					return fmt.Errorf("unsigned integer overflow for %s: %d", v.Type(), u), true
+				}
+				v.SetUint(u)
+				return nil, true
+			}
+		case float32:
+			if r >= 0 && float64(r) == math.Trunc(float64(r)) {
+				u := uint64(r)
+				if v.OverflowUint(u) {
+					return fmt.Errorf("unsigned integer overflow for %s: %d", v.Type(), u), true
+				}
+				v.SetUint(u)
+				return nil, true
+			}
+		}
+
+	case reflect.Float32, reflect.Float64:
+		if num, ok := raw.(json.Number); ok {
+			f, err := num.Float64()
+			if err != nil {
+				return fmt.Errorf("expected float, got %q: %w", num.String(), err), true
+			}
+			if v.OverflowFloat(f) {
+				return fmt.Errorf("float overflow for %s: %v", v.Type(), f), true
+			}
+			v.SetFloat(f)
+			return nil, true
+		}
+
+		switch r := raw.(type) {
+		case float64:
+			if v.OverflowFloat(r) {
+				return fmt.Errorf("float overflow for %s: %v", v.Type(), r), true
+			}
+			v.SetFloat(r)
+			return nil, true
+		case float32:
+			v.SetFloat(float64(r))
+			return nil, true
+		case int:
+			v.SetFloat(float64(r))
+			return nil, true
+		case int64:
+			v.SetFloat(float64(r))
+			return nil, true
+		case int32:
+			v.SetFloat(float64(r))
+			return nil, true
+		case uint:
+			v.SetFloat(float64(r))
+			return nil, true
+		case uint64:
+			v.SetFloat(float64(r))
+			return nil, true
+		case uint32:
+			v.SetFloat(float64(r))
+			return nil, true
+		}
+
+	case reflect.Bool:
+		if b, ok := raw.(bool); ok {
+			v.SetBool(b)
+			return nil, true
+		}
+
+	case reflect.String:
+		if s, ok := raw.(string); ok {
+			v.SetString(s)
+			return nil, true
+		}
+	}
+
+	if v.Type() == reflect.TypeFor[time.Time]() {
+		if t, ok := raw.(time.Time); ok {
+			v.Set(reflect.ValueOf(t))
+			return nil, true
+		}
+	}
+
+	return nil, false
 }
