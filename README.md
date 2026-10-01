@@ -134,9 +134,9 @@ Raw value via .Value()      : super-secret-production-password
   - Pointers (allocated only when a corresponding value is present)
   - Nested and embedded structs with prefix inheritance
   - Custom deserialization via `encoding.TextUnmarshaler`
-- 🔒 **Sensitive Data Protection (`Secret[T]`)**: Generic wrapper protecting passwords, tokens, API keys. Values are masked as `[SECRET]` in `fmt.Print*`, `log.Print*`, and JSON serialization, while accessible via `.Value()`.
+- 🔒 **Sensitive Data Protection (`Secret[T]`)**: Generic wrapper protecting passwords, tokens, and API keys. Values are masked as `[SECRET]` in `fmt.Print*`, `log.Print*`, `log/slog` structured logging, text/JSON serialization, and validation error reports, while safely accessible via `.Value()` or `.Unmask()`.
 - ✅ **Custom Validation (`Validator`)**: Domain-level business rule validation by implementing `Validate() error` on configuration structs, invoked automatically upon decoding.
-- 🪶 **Minimal Dependencies**: The core library relies strictly on the Go standard library, with lightweight optional modules for YAML and TOML.
+- 🪶 **Minimal Dependencies**: The core library relies strictly on the Go standard library, pulling only two lightweight, battle-tested packages for format parsing: `gopkg.in/yaml.v3` (for YAML) and `github.com/pelletier/go-toml/v2` (for TOML). Zero bloat.
 
 ## Cascading Multi-Source Overrides
 
@@ -150,6 +150,8 @@ goconf.WithTOML("config.toml") // 3. Environment overrides
 goconf.WithJSON("local.json")  // 4. Local development overrides
 goconf.WithDotEnv(".env")      // 5. Secrets and environment overrides
 ```
+
+By default, `goconf` automatically appends OS environment variables at the end with the highest priority. To disable automatic OS environment loading when explicitly providing custom sources, use `goconf.WithoutAutoEnv()`.
 
 Check out [examples/complex](examples/complex) for a full runnable demonstration combining 5 cascading format layers.
 
@@ -165,6 +167,8 @@ Tags are defined as exported constants in [tags.go](tags.go):
 | `goconf.TagPrefix` | `prefix` | Key prefix for nested struct fields | `prefix:"DB_"` |
 | `goconf.TagSep` | `sep` | Delimiter for slices and maps (default: `,`) | `sep:";"` |
 | `goconf.TagLayout` | `layout` | Layout string for parsing `time.Time` | `layout:"2006-01-02"` |
+| `goconf.TagSecret` | `secret` | Marks field as sensitive, masking values in error reports | `secret:"true"` |
+| `goconf.TagDescription` | `doc` | Field description / help documentation | `doc:"TCP port"` |
 
 ### Prefix Rules and Inheritance
 
@@ -176,11 +180,11 @@ Tags are defined as exported constants in [tags.go](tags.go):
 
 ## Error Inspection & Multi-Error Reporting
 
-Instead of failing on the first error, `goconf` accumulates all schema and type mismatches into a single structured report. See [example](examples/validation_errors/main.go).
+Instead of failing on the first error, `goconf` accumulates all schema and type mismatches into a single structured report. Sensitive fields (`Secret[T]` or tagged with `secret:"true"`) have their values safely masked as `[SECRET]` in error messages to avoid accidental log leaks. See [example](examples/validation_errors/main.go).
 
 ## Protecting Sensitive Data (`Secret[T]`)
 
-Wrap sensitive fields (passwords, tokens, private keys) in `goconf.Secret[T]` to ensure they are never accidentally leaked in terminal output, application logs, or JSON serialization:
+Wrap sensitive fields (passwords, tokens, private keys) in `goconf.Secret[T]` to ensure they are never accidentally leaked in terminal output, application logs, structured `slog` logs, text marshaling, or JSON serialization:
 
 ```go
 type DatabaseConfig struct {
@@ -197,9 +201,10 @@ func main() {
     fmt.Printf("%+v\n", cfg)      // Output: {Host:localhost Password:[SECRET] Port:5432}
     fmt.Println(cfg.Password)     // Output: [SECRET]
     log.Println(cfg)              // Output: {localhost [SECRET] 5432}
+    slog.Info("loaded", "db", cfg)// Masked in structured logs!
 
-    // Access the raw secret value safely when needed:
-    rawPassword := cfg.Password.Value()
+    // Access the raw secret value safely when needed via .Value() or .Unmask():
+    rawPassword := cfg.Password.Unmask() // or cfg.Password.Value()
     db.Connect(rawPassword)
 }
 ```
