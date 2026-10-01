@@ -51,4 +51,10 @@ const (
 	// Example:
 	//   Port int `key:"PORT" doc:"TCP port to listen on"`
 	TagDescription = "doc"
+
+	// TagSecret marks a field as sensitive, masking its value in error reports.
+	//
+	// Example:
+	//   Token string `key:"API_TOKEN" secret:"true"`
+	TagSecret = "secret"
 )

@@ -36,6 +36,9 @@ type FieldError struct {
 
 	// Err is the underlying cause of the error.
 	Err error
+
+	// IsSecret indicates whether the field holds sensitive information that must not be exposed in error messages.
+	IsSecret bool
 }
 
 // Error returns a formatted, human-readable error message.
@@ -47,11 +50,25 @@ func (e *FieldError) Error() string {
 
 	var valInfo string
 	if e.Value != nil {
-		valInfo = fmt.Sprintf(" with value %v", formatValue(e.Value))
+		if e.IsSecret {
+			valInfo = ` with value "[SECRET]"`
+		} else {
+			valInfo = fmt.Sprintf(" with value %v", formatValue(e.Value))
+		}
 	}
 
 	if errors.Is(e.Err, ErrMissingRequired) {
 		return fmt.Sprintf("field %q%s: required field is missing or empty", e.Field, keyInfo)
+	}
+
+	if e.IsSecret {
+		if errors.Is(e.Err, ErrValidationFailed) {
+			return fmt.Sprintf("field %q%s: validation constraint failed", e.Field, keyInfo)
+		}
+		if e.TargetType != "" {
+			return fmt.Sprintf("field %q%s%s: cannot convert to %s: invalid syntax or type mismatch", e.Field, keyInfo, valInfo, e.TargetType)
+		}
+		return fmt.Sprintf("field %q%s: decode or validation failed", e.Field, keyInfo)
 	}
 
 	if e.TargetType != "" {
@@ -108,6 +125,9 @@ func (v *ValidationError) Add(fe FieldError) {
 }
 
 func formatValue(v any) string {
+	if _, ok := v.(secretMarker); ok {
+		return `"[SECRET]"`
+	}
 	str := fmt.Sprintf("%q", fmt.Sprint(v))
 	if len(str) > 50 {
 		return str[:47] + "...\""

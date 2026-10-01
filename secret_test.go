@@ -141,3 +141,48 @@ func TestSecretRequiredValidation(t *testing.T) {
 		t.Errorf("expected ErrMissingRequired, got: %v", err)
 	}
 }
+
+func TestSecretUnmaskAndMarshalTextAndSlog(t *testing.T) {
+	sec := goconf.NewSecret("p@ssw0rd")
+
+	// Test Unmask
+	if sec.Unmask() != "p@ssw0rd" {
+		t.Errorf("expected Unmask() to return p@ssw0rd, got %q", sec.Unmask())
+	}
+
+	// Test MarshalText
+	text, err := sec.MarshalText()
+	if err != nil {
+		t.Fatalf("MarshalText error: %v", err)
+	}
+	if string(text) != "[SECRET]" {
+		t.Errorf("MarshalText: expected [SECRET], got %s", string(text))
+	}
+
+	// Test slog.LogValuer
+	val := sec.LogValue()
+	if val.String() != "[SECRET]" {
+		t.Errorf("LogValue: expected [SECRET], got %v", val)
+	}
+}
+
+func TestSecretFieldErrorMasking(t *testing.T) {
+	type BadSecretConfig struct {
+		SecretPort goconf.Secret[int] `key:"SECRET_PORT"`
+	}
+
+	var cfg BadSecretConfig
+	err := goconf.Load(&cfg, goconf.WithDotEnvReader(strings.NewReader("SECRET_PORT=not-an-integer-sensitive-token\n")))
+	if err == nil {
+		t.Fatal("expected type conversion error, got nil")
+	}
+
+	errStr := err.Error()
+	if strings.Contains(errStr, "not-an-integer-sensitive-token") {
+		t.Errorf("FieldError leaked secret value in error message: %s", errStr)
+	}
+	if !strings.Contains(errStr, `"[SECRET]"`) && !strings.Contains(errStr, "[SECRET]") {
+		t.Errorf("FieldError should have masked secret value, got: %s", errStr)
+	}
+}
+

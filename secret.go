@@ -3,6 +3,7 @@ package goconf
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 )
 
 // secretMarker is an unexported interface used by the decoder to recognize Secret[T] fields.
@@ -35,6 +36,11 @@ func (s Secret[T]) Value() T {
 	return s.value
 }
 
+// Unmask returns the raw underlying secret value. Alias for Value().
+func (s Secret[T]) Unmask() T {
+	return s.value
+}
+
 // String implements fmt.Stringer, returning "[SECRET]".
 func (s Secret[T]) String() string {
 	return "[SECRET]"
@@ -63,4 +69,14 @@ func (s Secret[T]) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler, populating the underlying value.
 func (s *Secret[T]) UnmarshalJSON(data []byte) error {
 	return json.Unmarshal(data, &s.value)
+}
+
+// MarshalText implements encoding.TextMarshaler, returning "[SECRET]".
+func (s Secret[T]) MarshalText() ([]byte, error) {
+	return []byte("[SECRET]"), nil
+}
+
+// LogValue implements slog.LogValuer, masking the secret value in structured logs.
+func (s Secret[T]) LogValue() slog.Value {
+	return slog.StringValue("[SECRET]")
 }

@@ -65,7 +65,7 @@ func (d *Decoder) Decode(target any) error {
 	d.decodeStruct(elem, d.prefix, "", valErr)
 
 	// Check if the root struct itself implements Validator
-	d.checkValidator(val, "", valErr)
+	d.checkValidator(val, "", false, valErr)
 
 	// If strict unknown keys enabled, check for unused keys
 	if d.strictUnknown {
@@ -132,10 +132,10 @@ func (d *Decoder) decodeStruct(v reflect.Value, prefix string, structPath string
 					fieldVal.Set(reflect.New(field.Type.Elem()))
 				}
 				d.decodeStruct(fieldVal.Elem(), childPrefix, fieldPath, valErr)
-				d.checkValidator(fieldVal, fieldPath, valErr)
+				d.checkValidator(fieldVal, fieldPath, false, valErr)
 			} else {
 				d.decodeStruct(fieldVal, childPrefix, fieldPath, valErr)
-				d.checkValidator(fieldVal.Addr(), fieldPath, valErr)
+				d.checkValidator(fieldVal.Addr(), fieldPath, false, valErr)
 			}
 			continue
 		}
@@ -189,6 +189,7 @@ func (d *Decoder) decodeStruct(v reflect.Value, prefix string, structPath string
 					Key:        primaryKey,
 					TargetType: field.Type.String(),
 					Err:        ErrMissingRequired,
+					IsSecret:   tagInfo.isSecret,
 				})
 			}
 			continue
@@ -206,15 +207,16 @@ func (d *Decoder) decodeStruct(v reflect.Value, prefix string, structPath string
 			valErr.Add(FieldError{
 				Field:      fieldPath,
 				Key:        primaryKey,
-				Value:      fmt.Sprint(rawValue),
+				Value:      rawValue,
 				TargetType: field.Type.String(),
 				Err:        err,
+				IsSecret:   tagInfo.isSecret,
 			})
 			continue
 		}
 
 		// Run field validator if implemented
-		d.checkValidator(fieldVal.Addr(), fieldPath, valErr)
+		d.checkValidator(fieldVal.Addr(), fieldPath, tagInfo.isSecret, valErr)
 	}
 }
 
@@ -225,6 +227,7 @@ type fieldTagInfo struct {
 	defaultValue string
 	separator    string
 	layout       string
+	isSecret     bool
 }
 
 func parseFieldTag(field reflect.StructField) fieldTagInfo {
@@ -269,6 +272,14 @@ func parseFieldTag(field reflect.StructField) fieldTagInfo {
 	// 5. Layout tag for time.Time
 	if layout := field.Tag.Get(TagLayout); layout != "" {
 		info.layout = layout
+	}
+
+	// 6. Secret tag or Secret[T] wrapper
+	if sec, ok := field.Tag.Lookup(TagSecret); ok {
+		info.isSecret = strings.EqualFold(sec, "true") || sec == "1"
+	}
+	if isSecretType(field.Type) {
+		info.isSecret = true
 	}
 
 	return info
@@ -660,7 +671,7 @@ func decodeTime(v reflect.Value, raw string, customLayout string) error {
 	return fmt.Errorf("cannot parse %q as time.Time (expected RFC3339 or 'YYYY-MM-DD HH:MM:SS')", raw)
 }
 
-func (d *Decoder) checkValidator(v reflect.Value, fieldPath string, valErr *ValidationError) {
+func (d *Decoder) checkValidator(v reflect.Value, fieldPath string, isSecret bool, valErr *ValidationError) {
 	if !v.IsValid() {
 		return
 	}
@@ -668,11 +679,20 @@ func (d *Decoder) checkValidator(v reflect.Value, fieldPath string, valErr *Vali
 	if val, ok := v.Interface().(Validator); ok {
 		if err := val.Validate(); err != nil {
 			valErr.Add(FieldError{
-				Field: fieldPath,
-				Err:   fmt.Errorf("%w: %v", ErrValidationFailed, err),
+				Field:    fieldPath,
+				Err:      fmt.Errorf("%w: %v", ErrValidationFailed, err),
+				IsSecret: isSecret,
 			})
 		}
 	}
+}
+
+func isSecretType(t reflect.Type) bool {
+	if t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	markerType := reflect.TypeFor[secretMarker]()
+	return t.Implements(markerType) || reflect.PointerTo(t).Implements(markerType)
 }
 
 func isConfigStruct(t reflect.Type) bool {
@@ -684,8 +704,7 @@ func isConfigStruct(t reflect.Type) bool {
 	}
 
 	// Secret[T] is a wrapped scalar value, not a nested config struct
-	markerType := reflect.TypeFor[secretMarker]()
-	if t.Implements(markerType) || reflect.PointerTo(t).Implements(markerType) {
+	if isSecretType(t) {
 		return false
 	}
 
