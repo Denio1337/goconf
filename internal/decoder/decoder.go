@@ -153,7 +153,16 @@ func (d *Decoder) decodeStruct(v reflect.Value, prefix string, structPath string
 		candidates := d.buildCandidateKeys(tagInfo, prefix, field.Name)
 
 		// Look up value in store (ignore ambient OS env if field is untagged and has no prefix)
-		rawVal, matchedKey, found := d.store.GetField(isTagged, prefix, candidates...)
+		var rawVal any
+		var matchedKey string
+		var found bool
+		for _, c := range candidates {
+			rawVal, found = d.store.Get(c, isTagged, prefix)
+			if found {
+				matchedKey = c
+				break
+			}
+		}
 		if found {
 			d.markConsumed(matchedKey)
 			for _, c := range candidates {

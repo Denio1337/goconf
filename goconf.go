@@ -95,7 +95,7 @@ func (l *Loader) Load(target any) error {
 		}
 
 		isAmbient := src == autoEnvSource
-		st.MergeWithAmbient(data, !isAmbient, isAmbient)
+		st.Merge(data, isAmbient)
 	}
 
 	dec := decoder.New(st)

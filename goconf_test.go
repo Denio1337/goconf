@@ -646,8 +646,8 @@ func TestReviewFix3_StoreDeterminism(t *testing.T) {
 			"db_host": "host_underscore",
 		})
 
-		val1, _, ok1 := st.Get("db.host")
-		val2, _, ok2 := st.Get("db_host")
+		val1, ok1 := st.Get("db.host")
+		val2, ok2 := st.Get("db_host")
 
 		if !ok1 || val1 != "host_dotted" {
 			t.Fatalf("iteration %d: expected db.host to be host_dotted, got %v", i, val1)
