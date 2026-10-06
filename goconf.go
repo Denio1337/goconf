@@ -17,7 +17,10 @@ package goconf
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
+	"sync"
 
 	"github.com/Denio1337/goconf/internal/decoder"
 	"github.com/Denio1337/goconf/internal/store"
@@ -30,7 +33,9 @@ import (
 type Validator = decoder.Validator
 
 // Loader manages sources, options, and decoding configuration into target structs.
+// It is safe for concurrent use by multiple goroutines.
 type Loader struct {
+	mu             sync.RWMutex
 	sources        []Source
 	prefix         string
 	strictUnknown  bool
@@ -53,53 +58,49 @@ func New(opts ...Option) *Loader {
 // Load reads data from all registered sources and decodes it into target.
 // target must be a non-nil pointer to a struct.
 func (l *Loader) Load(target any) error {
+	l.mu.RLock()
+	prefix := l.prefix
+	strictUnknown := l.strictUnknown
+	ignoreMissing := l.ignoreMissing
+	disableAutoEnv := l.disableAutoEnv
+	ctx := l.ctx
 	sources := make([]Source, 0, len(l.sources)+2)
 	sources = append(sources, l.sources...)
+	l.mu.RUnlock()
 
 	// Default to .env if no sources were explicitly added
 	if len(sources) == 0 {
 		sources = append(sources, dotenv.New(".env", dotenv.WithIgnoreMissing(true)))
 	}
 
-	// Append an env source at the end with highest priority unless auto-env is disabled
-	if !l.disableAutoEnv {
-		var envSource Source
-		filtered := make([]Source, 0, len(sources))
-		for _, s := range sources {
-			if _, ok := s.(*env.Source); ok {
-				envSource = s
-			} else {
-				filtered = append(filtered, s)
-			}
-		}
-		if envSource == nil {
-			envSource = env.New()
-		}
-		sources = append(filtered, envSource)
+	var autoEnvSource Source
+	if !disableAutoEnv {
+		autoEnvSource = env.New()
+		sources = append(sources, autoEnvSource)
 	}
 
 	st := store.New()
 
 	for _, src := range sources {
-		if err := l.ctx.Err(); err != nil {
+		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("loading canceled: %w", err)
 		}
-		data, err := src.Load(l.ctx)
+
+		data, err := src.Load(ctx)
+		if err != nil && ignoreMissing && isNotExist(err) {
+			continue
+		}
 		if err != nil {
 			return fmt.Errorf("source %q failed to load: %w", sourceName(src), err)
 		}
-		// Ambient OS environment variables ("env") should not be tracked as strict unknown keys
-		// to prevent unconsumed OS-level variables (e.g. PATH, HOME) from triggering false positives.
-		isAmbientEnv := false
-		if n, ok := src.(NamedSource); ok && n.Name() == "env" {
-			isAmbientEnv = true
-		}
-		st.MergeWithStrict(data, !isAmbientEnv)
+
+		isAmbient := src == autoEnvSource
+		st.MergeWithAmbient(data, !isAmbient, isAmbient)
 	}
 
 	dec := decoder.New(st)
-	dec.SetPrefix(l.prefix)
-	dec.SetStrictUnknown(l.strictUnknown)
+	dec.SetPrefix(prefix)
+	dec.SetStrictUnknown(strictUnknown)
 
 	return dec.Decode(target)
 }
@@ -124,6 +125,10 @@ func Load(target any, opts ...Option) error {
 // Useful during application bootstrapping (e.g. in func main or init).
 func MustLoad(target any, opts ...Option) {
 	New(opts...).MustLoad(target)
+}
+
+func isNotExist(err error) bool {
+	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, ErrNotFound)
 }
 
 func sourceName(s Source) string {

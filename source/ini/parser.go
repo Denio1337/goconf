@@ -21,6 +21,8 @@ func NewParser() *Parser {
 // Sections are represented as nested map[string]any.
 func (p *Parser) Parse(r io.Reader) (map[string]any, error) {
 	scanner := bufio.NewScanner(r)
+	buf := make([]byte, 64*1024)
+	scanner.Buffer(buf, 2*1024*1024)
 	result := make(map[string]any)
 	currentSection := ""
 

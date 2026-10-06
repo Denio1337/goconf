@@ -34,7 +34,7 @@ func (d *Decoder) decodeSlice(v reflect.Value, raw string, tagInfo fieldTagInfo)
 		sep = ","
 	}
 
-	parts := strings.Split(raw, sep)
+	parts := splitSliceElements(raw, sep)
 	slice := reflect.MakeSlice(v.Type(), len(parts), len(parts))
 
 	for i, part := range parts {
@@ -52,10 +52,61 @@ func (d *Decoder) decodeSlice(v reflect.Value, raw string, tagInfo fieldTagInfo)
 	return nil
 }
 
+// splitSliceElements splits raw by sep, respecting quotes and escapes.
+func splitSliceElements(raw, sep string) []string {
+	if sep == "" {
+		sep = ","
+	}
+	var parts []string
+	var current strings.Builder
+	inDouble := false
+	inSingle := false
+
+	sepLen := len(sep)
+	rawLen := len(raw)
+
+	for i := 0; i < rawLen; i++ {
+		c := raw[i]
+
+		if c == '\\' && i+1 < rawLen {
+			current.WriteByte(c)
+			i++
+			current.WriteByte(raw[i])
+			continue
+		}
+
+		if c == '"' && !inSingle {
+			inDouble = !inDouble
+			current.WriteByte(c)
+			continue
+		}
+
+		if c == '\'' && !inDouble {
+			inSingle = !inSingle
+			current.WriteByte(c)
+			continue
+		}
+
+		if !inDouble && !inSingle && i+sepLen <= rawLen && raw[i:i+sepLen] == sep {
+			parts = append(parts, current.String())
+			current.Reset()
+			i += sepLen - 1
+			continue
+		}
+
+		current.WriteByte(c)
+	}
+
+	parts = append(parts, current.String())
+	return parts
+}
+
 func (d *Decoder) decodeMap(v reflect.Value, raw string, tagInfo fieldTagInfo) error {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		v.Set(reflect.MakeMap(v.Type()))
+		if v.IsNil() {
+			v.Set(reflect.MakeMap(v.Type()))
+		}
 		return nil
 	}
 
@@ -65,8 +116,11 @@ func (d *Decoder) decodeMap(v reflect.Value, raw string, tagInfo fieldTagInfo) e
 		sep = ","
 	}
 
-	pairs := strings.Split(raw, sep)
-	mapVal := reflect.MakeMapWithSize(v.Type(), len(pairs))
+	pairs := splitSliceElements(raw, sep)
+	mapVal := v
+	if mapVal.IsNil() {
+		mapVal = reflect.MakeMapWithSize(v.Type(), len(pairs))
+	}
 	keyType := v.Type().Key()
 	valType := v.Type().Elem()
 
@@ -167,6 +221,184 @@ func isConfigStruct(t reflect.Type) bool {
 	return true
 }
 
+func toInt64(raw any) (int64, error, bool) {
+	if num, ok := raw.(json.Number); ok {
+		i, err := num.Int64()
+		if err == nil {
+			return i, nil, true
+		}
+		f, fErr := num.Float64()
+		if fErr == nil {
+			if f < float64(math.MinInt64) || f > float64(math.MaxInt64) {
+				return 0, fmt.Errorf("%w: integer overflow: %v", ErrTypeMismatch, f), true
+			}
+			if f == math.Trunc(f) {
+				return int64(f), nil, true
+			}
+		}
+		return 0, fmt.Errorf("%w: expected integer, got %q: %v", ErrTypeMismatch, num.String(), err), true
+	}
+
+	switch r := raw.(type) {
+	case int:
+		return int64(r), nil, true
+	case int64:
+		return r, nil, true
+	case int32:
+		return int64(r), nil, true
+	case int16:
+		return int64(r), nil, true
+	case int8:
+		return int64(r), nil, true
+	case uint:
+		if uint64(r) > uint64(math.MaxInt64) {
+			return 0, fmt.Errorf("%w: integer overflow: %d", ErrTypeMismatch, r), true
+		}
+		return int64(r), nil, true
+	case uint64:
+		if r > uint64(math.MaxInt64) {
+			return 0, fmt.Errorf("%w: integer overflow: %d", ErrTypeMismatch, r), true
+		}
+		return int64(r), nil, true
+	case uint32:
+		return int64(r), nil, true
+	case uint16:
+		return int64(r), nil, true
+	case uint8:
+		return int64(r), nil, true
+	case float64:
+		if r == math.Trunc(r) {
+			if r < float64(math.MinInt64) || r > float64(math.MaxInt64) {
+				return 0, fmt.Errorf("%w: integer overflow: %v", ErrTypeMismatch, r), true
+			}
+			return int64(r), nil, true
+		}
+	case float32:
+		f := float64(r)
+		if f == math.Trunc(f) {
+			if f < float64(math.MinInt64) || f > float64(math.MaxInt64) {
+				return 0, fmt.Errorf("%w: integer overflow: %v", ErrTypeMismatch, r), true
+			}
+			return int64(r), nil, true
+		}
+	}
+
+	return 0, nil, false
+}
+
+func toUint64(raw any) (uint64, error, bool) {
+	if num, ok := raw.(json.Number); ok {
+		u, err := strconv.ParseUint(num.String(), 10, 64)
+		if err == nil {
+			return u, nil, true
+		}
+		f, fErr := num.Float64()
+		if fErr == nil {
+			if f < 0 || f > float64(math.MaxUint64) {
+				return 0, fmt.Errorf("%w: unsigned integer overflow: %v", ErrTypeMismatch, f), true
+			}
+			if f == math.Trunc(f) {
+				return uint64(f), nil, true
+			}
+		}
+		return 0, fmt.Errorf("%w: expected unsigned integer, got %q: %v", ErrTypeMismatch, num.String(), err), true
+	}
+
+	switch r := raw.(type) {
+	case uint:
+		return uint64(r), nil, true
+	case uint64:
+		return r, nil, true
+	case uint32:
+		return uint64(r), nil, true
+	case uint16:
+		return uint64(r), nil, true
+	case uint8:
+		return uint64(r), nil, true
+	case int:
+		if r < 0 {
+			return 0, fmt.Errorf("%w: cannot convert negative integer %d to unsigned integer", ErrTypeMismatch, r), true
+		}
+		return uint64(r), nil, true
+	case int64:
+		if r < 0 {
+			return 0, fmt.Errorf("%w: cannot convert negative integer %d to unsigned integer", ErrTypeMismatch, r), true
+		}
+		return uint64(r), nil, true
+	case int32:
+		if r < 0 {
+			return 0, fmt.Errorf("%w: cannot convert negative integer %d to unsigned integer", ErrTypeMismatch, r), true
+		}
+		return uint64(r), nil, true
+	case int16:
+		if r < 0 {
+			return 0, fmt.Errorf("%w: cannot convert negative integer %d to unsigned integer", ErrTypeMismatch, r), true
+		}
+		return uint64(r), nil, true
+	case int8:
+		if r < 0 {
+			return 0, fmt.Errorf("%w: cannot convert negative integer %d to unsigned integer", ErrTypeMismatch, r), true
+		}
+		return uint64(r), nil, true
+	case float64:
+		if r >= 0 && r == math.Trunc(r) {
+			if r > float64(math.MaxUint64) {
+				return 0, fmt.Errorf("%w: unsigned integer overflow: %v", ErrTypeMismatch, r), true
+			}
+			return uint64(r), nil, true
+		}
+	case float32:
+		f := float64(r)
+		if f >= 0 && f == math.Trunc(f) {
+			if f > float64(math.MaxUint64) {
+				return 0, fmt.Errorf("%w: unsigned integer overflow: %v", ErrTypeMismatch, r), true
+			}
+			return uint64(r), nil, true
+		}
+	}
+
+	return 0, nil, false
+}
+
+func toFloat64(raw any) (float64, error, bool) {
+	if num, ok := raw.(json.Number); ok {
+		f, err := num.Float64()
+		if err != nil {
+			return 0, fmt.Errorf("%w: expected float, got %q: %v", ErrTypeMismatch, num.String(), err), true
+		}
+		return f, nil, true
+	}
+
+	switch r := raw.(type) {
+	case float64:
+		return r, nil, true
+	case float32:
+		return float64(r), nil, true
+	case int:
+		return float64(r), nil, true
+	case int64:
+		return float64(r), nil, true
+	case int32:
+		return float64(r), nil, true
+	case int16:
+		return float64(r), nil, true
+	case int8:
+		return float64(r), nil, true
+	case uint:
+		return float64(r), nil, true
+	case uint64:
+		return float64(r), nil, true
+	case uint32:
+		return float64(r), nil, true
+	case uint16:
+		return float64(r), nil, true
+	case uint8:
+		return float64(r), nil, true
+	}
+
+	return 0, nil, false
+}
+
 func tryDirectTypeConversion(v reflect.Value, raw any) (error, bool) {
 	switch v.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -178,207 +410,46 @@ func tryDirectTypeConversion(v reflect.Value, raw any) (error, bool) {
 			return nil, false
 		}
 
-		if num, ok := raw.(json.Number); ok {
-			i, err := num.Int64()
-			if err != nil {
-				return fmt.Errorf("expected integer, got %q: %w", num.String(), err), true
-			}
-			if v.OverflowInt(i) {
-				return fmt.Errorf("integer overflow for %s: %d", v.Type(), i), true
-			}
-			v.SetInt(i)
-			return nil, true
+		i, err, handled := toInt64(raw)
+		if !handled {
+			return nil, false
 		}
-
-		switch r := raw.(type) {
-		case int:
-			i := int64(r)
-			if v.OverflowInt(i) {
-				return fmt.Errorf("integer overflow for %s: %d", v.Type(), i), true
-			}
-			v.SetInt(i)
-			return nil, true
-		case int64:
-			if v.OverflowInt(r) {
-				return fmt.Errorf("integer overflow for %s: %d", v.Type(), r), true
-			}
-			v.SetInt(r)
-			return nil, true
-		case int32:
-			v.SetInt(int64(r))
-			return nil, true
-		case int16:
-			v.SetInt(int64(r))
-			return nil, true
-		case int8:
-			v.SetInt(int64(r))
-			return nil, true
-		case uint:
-			if uint64(r) > uint64(math.MaxInt64) || v.OverflowInt(int64(r)) {
-				return fmt.Errorf("integer overflow for %s: %d", v.Type(), r), true
-			}
-			v.SetInt(int64(r))
-			return nil, true
-		case uint64:
-			if r > uint64(math.MaxInt64) || v.OverflowInt(int64(r)) {
-				return fmt.Errorf("integer overflow for %s: %d", v.Type(), r), true
-			}
-			v.SetInt(int64(r))
-			return nil, true
-		case uint32:
-			v.SetInt(int64(r))
-			return nil, true
-		case uint16:
-			v.SetInt(int64(r))
-			return nil, true
-		case uint8:
-			v.SetInt(int64(r))
-			return nil, true
-		case float64:
-			if r == math.Trunc(r) {
-				i := int64(r)
-				if v.OverflowInt(i) {
-					return fmt.Errorf("integer overflow for %s: %d", v.Type(), i), true
-				}
-				v.SetInt(i)
-				return nil, true
-			}
-		case float32:
-			if float64(r) == math.Trunc(float64(r)) {
-				i := int64(r)
-				if v.OverflowInt(i) {
-					return fmt.Errorf("integer overflow for %s: %d", v.Type(), i), true
-				}
-				v.SetInt(i)
-				return nil, true
-			}
+		if err != nil {
+			return err, true
 		}
+		if v.OverflowInt(i) {
+			return fmt.Errorf("%w: integer overflow for %s: %d", ErrTypeMismatch, v.Type(), i), true
+		}
+		v.SetInt(i)
+		return nil, true
 
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		if num, ok := raw.(json.Number); ok {
-			u, err := strconv.ParseUint(num.String(), 10, v.Type().Bits())
-			if err != nil {
-				return fmt.Errorf("expected unsigned integer, got %q: %w", num.String(), err), true
-			}
-			v.SetUint(u)
-			return nil, true
+		u, err, handled := toUint64(raw)
+		if !handled {
+			return nil, false
 		}
-
-		switch r := raw.(type) {
-		case uint:
-			u := uint64(r)
-			if v.OverflowUint(u) {
-				return fmt.Errorf("unsigned integer overflow for %s: %d", v.Type(), u), true
-			}
-			v.SetUint(u)
-			return nil, true
-		case uint64:
-			if v.OverflowUint(r) {
-				return fmt.Errorf("unsigned integer overflow for %s: %d", v.Type(), r), true
-			}
-			v.SetUint(r)
-			return nil, true
-		case uint32:
-			v.SetUint(uint64(r))
-			return nil, true
-		case uint16:
-			v.SetUint(uint64(r))
-			return nil, true
-		case uint8:
-			v.SetUint(uint64(r))
-			return nil, true
-		case int:
-			if r < 0 || v.OverflowUint(uint64(r)) {
-				return fmt.Errorf("cannot convert negative integer %d to %s", r, v.Type()), true
-			}
-			v.SetUint(uint64(r))
-			return nil, true
-		case int64:
-			if r < 0 || v.OverflowUint(uint64(r)) {
-				return fmt.Errorf("cannot convert negative integer %d to %s", r, v.Type()), true
-			}
-			v.SetUint(uint64(r))
-			return nil, true
-		case int32:
-			if r < 0 {
-				return fmt.Errorf("cannot convert negative integer %d to %s", r, v.Type()), true
-			}
-			v.SetUint(uint64(r))
-			return nil, true
-		case int16:
-			if r < 0 {
-				return fmt.Errorf("cannot convert negative integer %d to %s", r, v.Type()), true
-			}
-			v.SetUint(uint64(r))
-			return nil, true
-		case int8:
-			if r < 0 {
-				return fmt.Errorf("cannot convert negative integer %d to %s", r, v.Type()), true
-			}
-			v.SetUint(uint64(r))
-			return nil, true
-		case float64:
-			if r >= 0 && r == math.Trunc(r) {
-				u := uint64(r)
-				if v.OverflowUint(u) {
-					return fmt.Errorf("unsigned integer overflow for %s: %d", v.Type(), u), true
-				}
-				v.SetUint(u)
-				return nil, true
-			}
-		case float32:
-			if r >= 0 && float64(r) == math.Trunc(float64(r)) {
-				u := uint64(r)
-				if v.OverflowUint(u) {
-					return fmt.Errorf("unsigned integer overflow for %s: %d", v.Type(), u), true
-				}
-				v.SetUint(u)
-				return nil, true
-			}
+		if err != nil {
+			return err, true
 		}
+		if v.OverflowUint(u) {
+			return fmt.Errorf("%w: unsigned integer overflow for %s: %d", ErrTypeMismatch, v.Type(), u), true
+		}
+		v.SetUint(u)
+		return nil, true
 
 	case reflect.Float32, reflect.Float64:
-		if num, ok := raw.(json.Number); ok {
-			f, err := num.Float64()
-			if err != nil {
-				return fmt.Errorf("expected float, got %q: %w", num.String(), err), true
-			}
-			if v.OverflowFloat(f) {
-				return fmt.Errorf("float overflow for %s: %v", v.Type(), f), true
-			}
-			v.SetFloat(f)
-			return nil, true
+		f, err, handled := toFloat64(raw)
+		if !handled {
+			return nil, false
 		}
-
-		switch r := raw.(type) {
-		case float64:
-			if v.OverflowFloat(r) {
-				return fmt.Errorf("float overflow for %s: %v", v.Type(), r), true
-			}
-			v.SetFloat(r)
-			return nil, true
-		case float32:
-			v.SetFloat(float64(r))
-			return nil, true
-		case int:
-			v.SetFloat(float64(r))
-			return nil, true
-		case int64:
-			v.SetFloat(float64(r))
-			return nil, true
-		case int32:
-			v.SetFloat(float64(r))
-			return nil, true
-		case uint:
-			v.SetFloat(float64(r))
-			return nil, true
-		case uint64:
-			v.SetFloat(float64(r))
-			return nil, true
-		case uint32:
-			v.SetFloat(float64(r))
-			return nil, true
+		if err != nil {
+			return err, true
 		}
+		if v.OverflowFloat(f) {
+			return fmt.Errorf("%w: float overflow for %s: %v", ErrTypeMismatch, v.Type(), f), true
+		}
+		v.SetFloat(f)
+		return nil, true
 
 	case reflect.Bool:
 		if b, ok := raw.(bool); ok {

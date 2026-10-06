@@ -31,7 +31,7 @@ func WithDotEnv(filenames ...string) Option {
 			filenames = []string{".env"}
 		}
 		for _, name := range filenames {
-			l.sources = append(l.sources, dotenv.New(name, dotenv.WithIgnoreMissing(l.ignoreMissing)))
+			l.sources = append(l.sources, dotenv.New(name))
 		}
 	}
 }
@@ -47,7 +47,7 @@ func WithDotEnvReader(r io.Reader) Option {
 func WithINI(filenames ...string) Option {
 	return func(l *Loader) {
 		for _, name := range filenames {
-			l.sources = append(l.sources, ini.New(name, ini.WithIgnoreMissing(l.ignoreMissing)))
+			l.sources = append(l.sources, ini.New(name))
 		}
 	}
 }
@@ -63,7 +63,7 @@ func WithINIReader(r io.Reader) Option {
 func WithJSON(filenames ...string) Option {
 	return func(l *Loader) {
 		for _, name := range filenames {
-			l.sources = append(l.sources, json.New(name, json.WithIgnoreMissing(l.ignoreMissing)))
+			l.sources = append(l.sources, json.New(name))
 		}
 	}
 }
@@ -79,7 +79,7 @@ func WithJSONReader(r io.Reader) Option {
 func WithYAML(filenames ...string) Option {
 	return func(l *Loader) {
 		for _, name := range filenames {
-			l.sources = append(l.sources, yaml.New(name, yaml.WithIgnoreMissing(l.ignoreMissing)))
+			l.sources = append(l.sources, yaml.New(name))
 		}
 	}
 }
@@ -95,7 +95,7 @@ func WithYAMLReader(r io.Reader) Option {
 func WithTOML(filenames ...string) Option {
 	return func(l *Loader) {
 		for _, name := range filenames {
-			l.sources = append(l.sources, toml.New(name, toml.WithIgnoreMissing(l.ignoreMissing)))
+			l.sources = append(l.sources, toml.New(name))
 		}
 	}
 }
@@ -111,6 +111,7 @@ func WithTOMLReader(r io.Reader) Option {
 // By default, it reads all environment variables.
 func WithEnv(opts ...env.Option) Option {
 	return func(l *Loader) {
+		l.disableAutoEnv = true
 		l.sources = append(l.sources, env.New(opts...))
 	}
 }
@@ -119,6 +120,7 @@ func WithEnv(opts ...env.Option) Option {
 // (e.g. "APP_") as a configuration source.
 func WithEnvPrefix(prefix string) Option {
 	return func(l *Loader) {
+		l.disableAutoEnv = true
 		l.sources = append(l.sources, env.New(env.WithPrefix(prefix)))
 	}
 }

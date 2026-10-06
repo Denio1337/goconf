@@ -42,6 +42,8 @@ func NewParser(opts ...Option) *Parser {
 // Parse reads from an io.Reader and returns key-value pairs.
 func (p *Parser) Parse(r io.Reader) (map[string]string, error) {
 	scanner := bufio.NewScanner(r)
+	buf := make([]byte, 64*1024)
+	scanner.Buffer(buf, 2*1024*1024)
 	result := make(map[string]string)
 
 	lineNum := 0

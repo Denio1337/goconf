@@ -23,17 +23,6 @@ type Decoder struct {
 	consumedKeys  map[string]bool
 }
 
-// SecretMarker is implemented by Secret[T] to indicate a sensitive value.
-type SecretMarker interface {
-	IsSecret()
-}
-
-// Validator is an optional interface that structs or fields can implement
-// to execute custom business-level validation logic after decoding.
-type Validator interface {
-	Validate() error
-}
-
 // New creates a new Decoder configured with the provided Store.
 func New(st *store.Store) *Decoder {
 	return &Decoder{
@@ -100,7 +89,7 @@ func (d *Decoder) Decode(target any) error {
 func (d *Decoder) decodeStruct(v reflect.Value, prefix string, structPath string, valErr *ValidationError) {
 	t := v.Type()
 
-	for i := 0; i < t.NumField(); i++ {
+	for i := range t.NumField() {
 		field := t.Field(i)
 		fieldVal := v.Field(i)
 
@@ -140,6 +129,10 @@ func (d *Decoder) decodeStruct(v reflect.Value, prefix string, structPath string
 			d.markConsumed(field.Name)
 
 			if field.Type.Kind() == reflect.Pointer {
+				// Optional section: only instantiate if at least one key for this prefix exists in the store
+				if !d.store.HasPrefix(childPrefix) {
+					continue
+				}
 				if fieldVal.IsNil() {
 					fieldVal.Set(reflect.New(field.Type.Elem()))
 				}
@@ -154,16 +147,23 @@ func (d *Decoder) decodeStruct(v reflect.Value, prefix string, structPath string
 
 		// Parse tags and options
 		tagInfo := parseFieldTag(field)
+		isTagged := tagInfo.primaryKey != ""
 
 		// Candidate keys for lookup in the store
 		candidates := d.buildCandidateKeys(tagInfo, prefix, field.Name)
 
-		// Look up value in store
-		rawVal, matchedKey, found := d.store.Get(candidates...)
+		// Look up value in store (ignore ambient OS env if field is untagged and has no prefix)
+		rawVal, matchedKey, found := d.store.GetField(isTagged, prefix, candidates...)
 		if found {
 			d.markConsumed(matchedKey)
 			for _, c := range candidates {
 				d.markConsumed(c)
+			}
+			if field.Type.Kind() == reflect.Map {
+				d.markConsumedPrefix(matchedKey)
+				for _, c := range candidates {
+					d.markConsumedPrefix(c)
+				}
 			}
 		}
 
@@ -173,15 +173,10 @@ func (d *Decoder) decodeStruct(v reflect.Value, prefix string, structPath string
 
 		if found && rawVal != nil {
 			rawValue = rawVal
-			switch rv := rawVal.(type) {
-			case string:
-				hasValue = strings.TrimSpace(rv) != ""
-			default:
-				hasValue = true
-			}
+			hasValue = true
 		}
 
-		// Fallback to default if empty or not found
+		// Fallback to default if key was not found in any source
 		if !hasValue && tagInfo.hasDefault {
 			rawValue = tagInfo.defaultValue
 			hasValue = true
@@ -216,10 +211,14 @@ func (d *Decoder) decodeStruct(v reflect.Value, prefix string, structPath string
 		}
 
 		if err := d.decodeFieldValue(fieldVal, rawValue, tagInfo); err != nil {
+			errValue := rawValue
+			if tagInfo.isSecret {
+				errValue = "[SECRET]"
+			}
 			valErr.Add(FieldError{
 				Field:      fieldPath,
 				Key:        primaryKey,
-				Value:      rawValue,
+				Value:      errValue,
 				TargetType: field.Type.String(),
 				Err:        err,
 				IsSecret:   tagInfo.isSecret,
@@ -243,6 +242,21 @@ func (d *Decoder) markConsumed(key string) {
 		d.consumedKeys[strings.ToLower(strings.ReplaceAll(key, ".", "__"))] = true
 	} else if strings.Contains(key, "_") {
 		d.consumedKeys[strings.ToLower(strings.ReplaceAll(key, "_", "."))] = true
+	}
+}
+
+func (d *Decoder) markConsumedPrefix(prefix string) {
+	if prefix == "" {
+		return
+	}
+	lower := strings.ToLower(prefix)
+	clean := strings.TrimRight(lower, "_.")
+	for k := range d.store.StrictKeys() {
+		lowerK := strings.ToLower(k)
+		if strings.HasPrefix(lowerK, clean+".") || strings.HasPrefix(lowerK, clean+"_") {
+			d.consumedKeys[lowerK] = true
+			d.consumedKeys[k] = true
+		}
 	}
 }
 
@@ -275,6 +289,37 @@ func (d *Decoder) decodeFieldValue(v reflect.Value, raw any, tagInfo fieldTagInf
 		return nil
 	}
 
+	// 0. If target is struct or pointer to struct (supports []Struct and map[string]Struct)
+	if isConfigStruct(v.Type()) {
+		if subMap, ok := raw.(map[string]any); ok {
+			subStore := store.New()
+			subStore.Merge(subMap)
+			subDecoder := New(subStore)
+			subErr := &ValidationError{}
+			subDecoder.decodeStruct(v, "", "", subErr)
+			if subErr.HasErrors() {
+				return subErr
+			}
+			return nil
+		}
+	}
+	if v.Kind() == reflect.Pointer && isConfigStruct(v.Type().Elem()) {
+		if subMap, ok := raw.(map[string]any); ok {
+			if v.IsNil() {
+				v.Set(reflect.New(v.Type().Elem()))
+			}
+			subStore := store.New()
+			subStore.Merge(subMap)
+			subDecoder := New(subStore)
+			subErr := &ValidationError{}
+			subDecoder.decodeStruct(v.Elem(), "", "", subErr)
+			if subErr.HasErrors() {
+				return subErr
+			}
+			return nil
+		}
+	}
+
 	// Special types that shouldn't be handled as generic slices or maps:
 	// net.IP is defined as []byte in the stdlib, but should be decoded as an IP string
 	if v.Type() == reflect.TypeOf(net.IP{}) {
@@ -302,7 +347,7 @@ func (d *Decoder) decodeFieldValue(v reflect.Value, raw any, tagInfo fieldTagInf
 		rawVal := reflect.ValueOf(raw)
 		if rawVal.Kind() == reflect.Slice {
 			slice := reflect.MakeSlice(v.Type(), rawVal.Len(), rawVal.Len())
-			for i := 0; i < rawVal.Len(); i++ {
+			for i := range rawVal.Len() {
 				elem := slice.Index(i)
 				item := rawVal.Index(i).Interface()
 				if err := d.decodeFieldValue(elem, item, tagInfo); err != nil {
@@ -323,7 +368,10 @@ func (d *Decoder) decodeFieldValue(v reflect.Value, raw any, tagInfo fieldTagInf
 	if v.Kind() == reflect.Map {
 		rawVal := reflect.ValueOf(raw)
 		if rawVal.Kind() == reflect.Map {
-			mapVal := reflect.MakeMapWithSize(v.Type(), rawVal.Len())
+			mapVal := v
+			if mapVal.IsNil() {
+				mapVal = reflect.MakeMapWithSize(v.Type(), rawVal.Len())
+			}
 			keyType := v.Type().Key()
 			valType := v.Type().Elem()
 			for _, k := range rawVal.MapKeys() {
@@ -381,23 +429,26 @@ func (d *Decoder) decodeFieldValue(v reflect.Value, raw any, tagInfo fieldTagInf
 
 func (d *Decoder) decodeField(v reflect.Value, raw string, tagInfo fieldTagInfo) error {
 	// 1. Special types with custom logic: time.Duration, time.Time, *url.URL, net.IP
-	if v.Type() == reflect.TypeOf(time.Duration(0)) {
-		d, err := time.ParseDuration(raw)
+	if v.Type() == reflect.TypeFor[time.Duration]() {
+		dur, err := time.ParseDuration(raw)
 		if err != nil {
-			return fmt.Errorf("invalid duration %q: %w", raw, err)
+			return fmt.Errorf("%w: invalid duration %q: %v", ErrTypeMismatch, raw, err)
 		}
-		v.SetInt(int64(d))
+		v.SetInt(int64(dur))
 		return nil
 	}
 
 	if v.Type() == reflect.TypeOf(time.Time{}) {
-		return decodeTime(v, raw, tagInfo.layout)
+		if err := decodeTime(v, raw, tagInfo.layout); err != nil {
+			return fmt.Errorf("%w: %v", ErrTypeMismatch, err)
+		}
+		return nil
 	}
 
 	if v.Type() == reflect.TypeOf(&url.URL{}) {
 		parsedURL, err := url.Parse(raw)
 		if err != nil {
-			return fmt.Errorf("invalid URL %q: %w", raw, err)
+			return fmt.Errorf("%w: invalid URL %q: %v", ErrTypeMismatch, raw, err)
 		}
 		v.Set(reflect.ValueOf(parsedURL))
 		return nil
@@ -406,7 +457,7 @@ func (d *Decoder) decodeField(v reflect.Value, raw string, tagInfo fieldTagInfo)
 	if v.Type() == reflect.TypeOf(net.IP{}) {
 		ip := net.ParseIP(strings.TrimSpace(raw))
 		if ip == nil {
-			return fmt.Errorf("invalid IP address %q", raw)
+			return fmt.Errorf("%w: invalid IP address %q", ErrTypeMismatch, raw)
 		}
 		v.Set(reflect.ValueOf(ip))
 		return nil
@@ -449,7 +500,7 @@ func (d *Decoder) decodeField(v reflect.Value, raw string, tagInfo fieldTagInfo)
 	case reflect.Bool:
 		b, err := strconv.ParseBool(strings.TrimSpace(raw))
 		if err != nil {
-			return fmt.Errorf("expected boolean (true/false/1/0), got %q: %w", raw, err)
+			return fmt.Errorf("%w: expected boolean (true/false/1/0), got %q: %v", ErrTypeMismatch, raw, err)
 		}
 		v.SetBool(b)
 		return nil
@@ -457,7 +508,7 @@ func (d *Decoder) decodeField(v reflect.Value, raw string, tagInfo fieldTagInfo)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		i, err := strconv.ParseInt(strings.TrimSpace(raw), 0, v.Type().Bits())
 		if err != nil {
-			return fmt.Errorf("expected integer, got %q: %w", raw, err)
+			return fmt.Errorf("%w: expected integer, got %q: %v", ErrTypeMismatch, raw, err)
 		}
 		v.SetInt(i)
 		return nil
@@ -465,7 +516,7 @@ func (d *Decoder) decodeField(v reflect.Value, raw string, tagInfo fieldTagInfo)
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		u, err := strconv.ParseUint(strings.TrimSpace(raw), 0, v.Type().Bits())
 		if err != nil {
-			return fmt.Errorf("expected unsigned integer, got %q: %w", raw, err)
+			return fmt.Errorf("%w: expected unsigned integer, got %q: %v", ErrTypeMismatch, raw, err)
 		}
 		v.SetUint(u)
 		return nil
@@ -473,7 +524,7 @@ func (d *Decoder) decodeField(v reflect.Value, raw string, tagInfo fieldTagInfo)
 	case reflect.Float32, reflect.Float64:
 		f, err := strconv.ParseFloat(strings.TrimSpace(raw), v.Type().Bits())
 		if err != nil {
-			return fmt.Errorf("expected floating-point number, got %q: %w", raw, err)
+			return fmt.Errorf("%w: expected floating-point number, got %q: %v", ErrTypeMismatch, raw, err)
 		}
 		v.SetFloat(f)
 		return nil
@@ -485,7 +536,7 @@ func (d *Decoder) decodeField(v reflect.Value, raw string, tagInfo fieldTagInfo)
 		return d.decodeMap(v, raw, tagInfo)
 
 	default:
-		return fmt.Errorf("unsupported target kind: %s", v.Kind())
+		return fmt.Errorf("%w: unsupported target kind: %s", ErrTypeMismatch, v.Kind())
 	}
 }
 

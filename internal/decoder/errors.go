@@ -3,6 +3,7 @@ package decoder
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 )
 
@@ -19,6 +20,17 @@ var (
 	// ErrValidationFailed is returned when a custom validator returns an error.
 	ErrValidationFailed = errors.New("validation constraint failed")
 )
+
+// SecretMarker is implemented by Secret[T] to indicate a sensitive value.
+type SecretMarker interface {
+	IsSecret()
+}
+
+// Validator is an optional interface that structs or fields can implement
+// to execute custom business-level validation logic after decoding.
+type Validator interface {
+	Validate() error
+}
 
 // FieldError represents a detailed error associated with a specific struct field during decoding or validation.
 type FieldError struct {
@@ -72,6 +84,61 @@ func (e *FieldError) Unwrap() error {
 	return e.Err
 }
 
+// LogValue implements slog.LogValuer to ensure secrets are never leaked in structured logging.
+func (e FieldError) LogValue() slog.Value {
+	val := e.Value
+	if e.IsSecret {
+		val = "[SECRET]"
+	}
+	errStr := "<nil>"
+	if e.Err != nil {
+		if e.IsSecret {
+			errStr = "validation or syntax error"
+		} else {
+			errStr = e.Err.Error()
+		}
+	}
+	return slog.GroupValue(
+		slog.String("field", e.Field),
+		slog.String("key", e.Key),
+		slog.Any("value", val),
+		slog.String("target_type", e.TargetType),
+		slog.String("error", errStr),
+		slog.Bool("is_secret", e.IsSecret),
+	)
+}
+
+// Format implements fmt.Formatter to prevent secret leaks with %+v or %#v.
+func (e FieldError) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 'v':
+		if f.Flag('+') || f.Flag('#') {
+			val := e.Value
+			if e.IsSecret {
+				val = `"[SECRET]"`
+			}
+			errStr := "<nil>"
+			if e.Err != nil {
+				if e.IsSecret {
+					errStr = "validation or syntax error"
+				} else {
+					errStr = e.Err.Error()
+				}
+			}
+			fmt.Fprintf(f, "{Field:%q Key:%q Value:%v TargetType:%q Err:%s IsSecret:%t}",
+				e.Field, e.Key, val, e.TargetType, errStr, e.IsSecret)
+			return
+		}
+		fmt.Fprint(f, e.Error())
+	case 's':
+		fmt.Fprint(f, e.Error())
+	case 'q':
+		fmt.Fprintf(f, "%q", e.Error())
+	default:
+		fmt.Fprint(f, e.Error())
+	}
+}
+
 // ValidationError is a collection of FieldErrors encountered while parsing or validating configuration.
 type ValidationError struct {
 	Errors []FieldError
@@ -113,13 +180,43 @@ func (v *ValidationError) Add(fe FieldError) {
 	v.Errors = append(v.Errors, fe)
 }
 
+// LogValue implements slog.LogValuer for ValidationError.
+func (v ValidationError) LogValue() slog.Value {
+	attrs := make([]slog.Attr, len(v.Errors))
+	for i, err := range v.Errors {
+		attrs[i] = slog.Any(fmt.Sprintf("[%d]", i+1), err.LogValue())
+	}
+	return slog.GroupValue(attrs...)
+}
+
+// Format implements fmt.Formatter for ValidationError.
+func (v ValidationError) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 'v':
+		if f.Flag('+') || f.Flag('#') {
+			var sb strings.Builder
+			fmt.Fprintf(&sb, "ValidationError{\n")
+			for _, err := range v.Errors {
+				fmt.Fprintf(&sb, "  %+v\n", err)
+			}
+			fmt.Fprintf(&sb, "}")
+			fmt.Fprint(f, sb.String())
+			return
+		}
+		fmt.Fprint(f, v.Error())
+	default:
+		fmt.Fprint(f, v.Error())
+	}
+}
+
 func formatValue(v any) string {
 	if _, ok := v.(SecretMarker); ok {
 		return `"[SECRET]"`
 	}
-	str := fmt.Sprintf("%q", fmt.Sprint(v))
-	if len(str) > 50 {
-		return str[:47] + "...\""
+	raw := fmt.Sprint(v)
+	runes := []rune(raw)
+	if len(runes) > 40 {
+		raw = string(runes[:37]) + "..."
 	}
-	return str
+	return fmt.Sprintf("%q", raw)
 }

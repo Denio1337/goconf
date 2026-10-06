@@ -1,6 +1,10 @@
 package goconf
 
-import "github.com/Denio1337/goconf/internal/decoder"
+import (
+	"errors"
+
+	"github.com/Denio1337/goconf/internal/decoder"
+)
 
 var (
 	// ErrInvalidTarget is returned when target passed to Load is not a non-nil pointer to a struct.
@@ -14,6 +18,9 @@ var (
 
 	// ErrValidationFailed is returned when a custom validator returns an error.
 	ErrValidationFailed = decoder.ErrValidationFailed
+
+	// ErrNotFound is returned or wrapped when a configuration file or source is not found.
+	ErrNotFound = errors.New("configuration source not found")
 )
 
 // FieldError represents a detailed error associated with a specific struct field during decoding or validation.

@@ -157,17 +157,17 @@ Check out [examples/complex](examples/complex) for a full runnable demonstration
 
 ## Struct Tags and Options
 
-Tags are defined as exported constants in [tags.go](tags.go):
+`goconf` supports the following struct tags for schema definition:
 
-| Constant | Tag Name | Description | Example |
-|---|---|---|---|
-| `goconf.TagKey` | `key` | Name of the configuration key | `key:"PORT"` |
-| `goconf.TagDefault` | `default` | Default value if the key is missing or empty | `default:"8080"` |
-| `goconf.TagRequired` | `required` | Marks field as required. Returns an error if missing | `required:"true"` |
-| `goconf.TagPrefix` | `prefix` | Key prefix for nested struct fields | `prefix:"DB_"` |
-| `goconf.TagSep` | `sep` | Delimiter for slices and maps (default: `,`) | `sep:";"` |
-| `goconf.TagLayout` | `layout` | Layout string for parsing `time.Time` | `layout:"2006-01-02"` |
-| `goconf.TagDescription` | `doc` | Field description / help documentation | `doc:"TCP port"` |
+| Tag Name | Description | Example |
+|---|---|---|
+| `key` | Name of the configuration key | `key:"PORT"` |
+| `default` | Default value if the key is missing or empty | `default:"8080"` |
+| `required` | Marks field as required. Returns an error if missing | `required:"true"` |
+| `prefix` | Key prefix for nested struct fields | `prefix:"DB_"` |
+| `sep` | Delimiter for slices and maps (default: `,`, supports quoted items) | `sep:";"` |
+| `layout` | Layout string for parsing `time.Time` | `layout:"2006-01-02"` |
+| `secret` | Masks the field value in error reports and logs | `secret:"true"` |
 
 ### Prefix Rules and Inheritance
 

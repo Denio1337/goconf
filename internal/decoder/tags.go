@@ -14,7 +14,6 @@ const (
 	TagPrefix      = "prefix"
 	TagSep         = "sep"
 	TagLayout      = "layout"
-	TagDescription = "doc"
 	TagSecret      = "secret"
 )
 
@@ -99,9 +98,9 @@ func (d *Decoder) buildCandidateKeys(tagInfo fieldTagInfo, prefix, fieldName str
 				candidates = append(candidates, prefix+"_"+tagInfo.primaryKey)
 				candidates = append(candidates, prefix+"."+tagInfo.primaryKey)
 			}
+		} else {
+			candidates = append(candidates, tagInfo.primaryKey)
 		}
-		// Also allow key without prefix as fallback
-		candidates = append(candidates, tagInfo.primaryKey)
 	}
 
 	// Default naming conventions derived from field name
@@ -135,6 +134,7 @@ func (d *Decoder) buildCandidateKeys(tagInfo fieldTagInfo, prefix, fieldName str
 // toScreamingSnake converts camelCase / PascalCase to SCREAMING_SNAKE_CASE.
 func toScreamingSnake(s string) string {
 	var sb strings.Builder
+	sb.Grow(len(s) + 5)
 	runes := []rune(s)
 	n := len(runes)
 

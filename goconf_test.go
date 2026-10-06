@@ -3,12 +3,16 @@ package goconf_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/Denio1337/goconf"
+	"github.com/Denio1337/goconf/internal/store"
 	"github.com/Denio1337/goconf/source/env"
 )
 
@@ -585,5 +589,430 @@ func TestCustomMinimalSource(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "*goconf_test.minimalSource") || !strings.Contains(err.Error(), "connection failed") {
 		t.Errorf("expected formatted source type error, got: %v", err)
+	}
+}
+
+func TestReviewFix1_AmbientEnvDoesNotOverwriteDefaultsWithoutTag(t *testing.T) {
+	var cfg struct {
+		User string `default:"default_user"`
+		Home string `default:"/default/home"`
+		Path string `default:"/default/path"`
+	}
+
+	err := goconf.Load(&cfg)
+	if err != nil {
+		t.Fatalf("unexpected load error: %v", err)
+	}
+
+	if cfg.User != "default_user" {
+		t.Errorf("expected User to keep default, got: %q", cfg.User)
+	}
+	if cfg.Home != "/default/home" {
+		t.Errorf("expected Home to keep default, got: %q", cfg.Home)
+	}
+	if cfg.Path != "/default/path" {
+		t.Errorf("expected Path to keep default, got: %q", cfg.Path)
+	}
+}
+
+func TestReviewFix2_PrefixScoping_NoFallbackToUnprefixed(t *testing.T) {
+	type Config struct {
+		Host  string `key:"HOST"`
+		Redis struct {
+			Host string `key:"HOST"`
+		} `prefix:"REDIS_"`
+	}
+
+	dotEnvContent := "HOST=global.example.com\n"
+	var cfg Config
+	err := goconf.Load(&cfg, goconf.WithDotEnvReader(strings.NewReader(dotEnvContent)), goconf.WithoutAutoEnv())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.Host != "global.example.com" {
+		t.Errorf("expected global Host=global.example.com, got %q", cfg.Host)
+	}
+	if cfg.Redis.Host != "" {
+		t.Errorf("expected Redis.Host to be empty (no fallback to root HOST), got %q", cfg.Redis.Host)
+	}
+}
+
+func TestReviewFix3_StoreDeterminism(t *testing.T) {
+	for i := 0; i < 200; i++ {
+		st := store.New()
+		st.Merge(map[string]any{
+			"db.host": "host_dotted",
+			"db_host": "host_underscore",
+		})
+
+		val1, _, ok1 := st.Get("db.host")
+		val2, _, ok2 := st.Get("db_host")
+
+		if !ok1 || val1 != "host_dotted" {
+			t.Fatalf("iteration %d: expected db.host to be host_dotted, got %v", i, val1)
+		}
+		if !ok2 || val2 != "host_underscore" {
+			t.Fatalf("iteration %d: expected db_host to be host_underscore, got %v", i, val2)
+		}
+	}
+}
+
+func TestReviewFix4_FloatOverflow_1e30(t *testing.T) {
+	var cfg struct {
+		Val int64 `key:"val"`
+	}
+
+	jsonContent := `{"val": 1e30}`
+	err := goconf.Load(&cfg, goconf.WithJSONReader(strings.NewReader(jsonContent)), goconf.WithoutAutoEnv())
+	if err == nil {
+		t.Fatalf("expected overflow error for 1e30 into int64, got nil (Val=%d)", cfg.Val)
+	}
+	if !errors.Is(err, goconf.ErrTypeMismatch) {
+		t.Errorf("expected ErrTypeMismatch, got: %v", err)
+	}
+}
+
+func TestReviewFix5_SecretMaskingInErrorsAndSlog(t *testing.T) {
+	type SecretConfig struct {
+		SecretPort goconf.Secret[int] `key:"SECRET_PORT"`
+	}
+
+	sensitiveVal := "super-confidential-password-12345"
+	var cfg SecretConfig
+	err := goconf.Load(&cfg, goconf.WithDotEnvReader(strings.NewReader("SECRET_PORT="+sensitiveVal+"\n")), goconf.WithoutAutoEnv())
+	if err == nil {
+		t.Fatal("expected type error, got nil")
+	}
+
+	if strings.Contains(err.Error(), sensitiveVal) {
+		t.Errorf("err.Error() leaked secret: %v", err)
+	}
+
+	formatted := fmt.Sprintf("%+v", err)
+	if strings.Contains(formatted, sensitiveVal) {
+		t.Errorf("%%+v format leaked secret: %s", formatted)
+	}
+
+	var logBuf strings.Builder
+	logger := slog.New(slog.NewTextHandler(&logBuf, nil))
+	logger.Error("config failure", "error", err)
+	if strings.Contains(logBuf.String(), sensitiveVal) {
+		t.Errorf("slog output leaked secret: %s", logBuf.String())
+	}
+}
+
+func TestReviewFix6_SliceAndMapOfStructs(t *testing.T) {
+	type Server struct {
+		Host string `key:"host"`
+		Port int    `key:"port"`
+	}
+
+	type AppConfig struct {
+		Clusters []Server          `key:"clusters"`
+		Services map[string]Server `key:"services"`
+	}
+
+	jsonContent := `{
+		"clusters": [
+			{"host": "cluster1", "port": 8001},
+			{"host": "cluster2", "port": 8002}
+		],
+		"services": {
+			"auth": {"host": "auth.local", "port": 9001},
+			"billing": {"host": "billing.local", "port": 9002}
+		}
+	}`
+
+	var cfg AppConfig
+	err := goconf.Load(&cfg, goconf.WithJSONReader(strings.NewReader(jsonContent)), goconf.WithoutAutoEnv())
+	if err != nil {
+		t.Fatalf("unexpected load error: %v", err)
+	}
+
+	if len(cfg.Clusters) != 2 || cfg.Clusters[0].Host != "cluster1" || cfg.Clusters[1].Port != 8002 {
+		t.Errorf("unexpected Clusters: %+v", cfg.Clusters)
+	}
+	if len(cfg.Services) != 2 || cfg.Services["auth"].Host != "auth.local" || cfg.Services["billing"].Port != 9002 {
+		t.Errorf("unexpected Services: %+v", cfg.Services)
+	}
+}
+
+func TestReviewFix7_StrictUnknown_WithMapField(t *testing.T) {
+	type Config struct {
+		Labels map[string]string `key:"labels"`
+	}
+
+	jsonContent := `{"labels": {"env": "prod", "region": "eu-central"}}`
+	var cfg Config
+	err := goconf.Load(&cfg,
+		goconf.WithJSONReader(strings.NewReader(jsonContent)),
+		goconf.WithStrictUnknown(true),
+		goconf.WithoutAutoEnv(),
+	)
+	if err != nil {
+		t.Fatalf("expected WithStrictUnknown to succeed on map field, got: %v", err)
+	}
+	if cfg.Labels["env"] != "prod" || cfg.Labels["region"] != "eu-central" {
+		t.Errorf("unexpected labels: %+v", cfg.Labels)
+	}
+}
+
+func TestReviewFix8_OptionalPointerSection(t *testing.T) {
+	type DatabaseConfig struct {
+		Host string `key:"HOST" required:"true"`
+		Port int    `key:"PORT" required:"true"`
+	}
+
+	type Config struct {
+		Database *DatabaseConfig `prefix:"DB_"`
+		AppPort  int             `key:"APP_PORT"`
+	}
+
+	var cfg1 Config
+	err := goconf.Load(&cfg1, goconf.WithDotEnvReader(strings.NewReader("APP_PORT=8080\n")), goconf.WithoutAutoEnv())
+	if err != nil {
+		t.Fatalf("expected optional database to remain nil, got error: %v", err)
+	}
+	if cfg1.Database != nil {
+		t.Errorf("expected cfg1.Database to be nil, got: %+v", cfg1.Database)
+	}
+	if cfg1.AppPort != 8080 {
+		t.Errorf("expected AppPort=8080, got %d", cfg1.AppPort)
+	}
+
+	var cfg2 Config
+	err = goconf.Load(&cfg2, goconf.WithDotEnvReader(strings.NewReader("APP_PORT=8080\nDB_HOST=pg.local\nDB_PORT=5432\n")), goconf.WithoutAutoEnv())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg2.Database == nil || cfg2.Database.Host != "pg.local" || cfg2.Database.Port != 5432 {
+		t.Errorf("expected populated Database, got: %+v", cfg2.Database)
+	}
+}
+
+func TestReviewFix9_LoaderReusableReader(t *testing.T) {
+	jsonContent := `{"port": 9090}`
+	loader := goconf.New(
+		goconf.WithJSONReader(strings.NewReader(jsonContent)),
+		goconf.WithoutAutoEnv(),
+	)
+
+	var cfg1 struct {
+		Port int `key:"port"`
+	}
+	if err := loader.Load(&cfg1); err != nil {
+		t.Fatalf("first load failed: %v", err)
+	}
+	if cfg1.Port != 9090 {
+		t.Errorf("expected 9090, got %d", cfg1.Port)
+	}
+
+	var cfg2 struct {
+		Port int `key:"port"`
+	}
+	if err := loader.Load(&cfg2); err != nil {
+		t.Fatalf("second load failed with: %v", err)
+	}
+	if cfg2.Port != 9090 {
+		t.Errorf("expected 9090, got %d", cfg2.Port)
+	}
+}
+
+func TestReviewFix10_WithIgnoreMissing_OrderIndependence(t *testing.T) {
+	var cfg struct {
+		Port int `key:"PORT" default:"8080"`
+	}
+
+	// 1. WithIgnoreMissing placed AFTER file sources
+	err := goconf.Load(&cfg,
+		goconf.WithDotEnv("non_existent.env"),
+		goconf.WithINI("non_existent.ini"),
+		goconf.WithJSON("non_existent.json"),
+		goconf.WithYAML("non_existent.yaml"),
+		goconf.WithTOML("non_existent.toml"),
+		goconf.WithIgnoreMissing(true),
+		goconf.WithoutAutoEnv(),
+	)
+	if err != nil {
+		t.Fatalf("expected ignoreMissing to work when placed AFTER file sources, got: %v", err)
+	}
+
+	// 2. WithIgnoreMissing placed BEFORE file sources
+	err = goconf.Load(&cfg,
+		goconf.WithIgnoreMissing(true),
+		goconf.WithDotEnv("non_existent.env"),
+		goconf.WithINI("non_existent.ini"),
+		goconf.WithJSON("non_existent.json"),
+		goconf.WithYAML("non_existent.yaml"),
+		goconf.WithTOML("non_existent.toml"),
+		goconf.WithoutAutoEnv(),
+	)
+	if err != nil {
+		t.Fatalf("expected ignoreMissing to work when placed BEFORE file sources, got: %v", err)
+	}
+}
+
+func TestReviewFix11_ExplicitEmptyStringPreserved(t *testing.T) {
+	var cfg struct {
+		Prefix string `key:"PREFIX" default:"default-prefix"`
+	}
+
+	err := goconf.Load(&cfg,
+		goconf.WithDotEnvReader(strings.NewReader("PREFIX=\n")),
+		goconf.WithoutAutoEnv(),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.Prefix != "" {
+		t.Errorf("expected explicit empty string to be preserved, got %q", cfg.Prefix)
+	}
+}
+
+func TestReviewFix12_ErrTypeMismatch_IsWrapped(t *testing.T) {
+	var cfg struct {
+		Port int `key:"PORT"`
+	}
+
+	err := goconf.Load(&cfg,
+		goconf.WithDotEnvReader(strings.NewReader("PORT=invalid_int\n")),
+		goconf.WithoutAutoEnv(),
+	)
+	if err == nil {
+		t.Fatal("expected type error, got nil")
+	}
+
+	if !errors.Is(err, goconf.ErrTypeMismatch) {
+		t.Errorf("expected errors.Is(err, goconf.ErrTypeMismatch) to be true, got %v", err)
+	}
+}
+
+func TestQuotedSliceElements(t *testing.T) {
+	type Config struct {
+		Origins []string `key:"ORIGINS"`
+	}
+
+	// 1. Array bracket syntax in .env
+	var cfg1 Config
+	content1 := `ORIGINS=["https://a.com, https://b.com", "https://c.com"]` + "\n"
+	err := goconf.Load(&cfg1,
+		goconf.WithDotEnvReader(strings.NewReader(content1)),
+		goconf.WithoutAutoEnv(),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := []string{"https://a.com, https://b.com", "https://c.com"}
+	if len(cfg1.Origins) != len(expected) {
+		t.Fatalf("expected %d elements, got %d: %v", len(expected), len(cfg1.Origins), cfg1.Origins)
+	}
+	for i, exp := range expected {
+		if cfg1.Origins[i] != exp {
+			t.Errorf("at index %d: expected %q, got %q", i, exp, cfg1.Origins[i])
+		}
+	}
+
+	// 2. Single-quoted container in .env preserving inner double quotes
+	var cfg2 Config
+	content2 := `ORIGINS='"https://a.com, https://b.com", "https://c.com"'` + "\n"
+	err = goconf.Load(&cfg2,
+		goconf.WithDotEnvReader(strings.NewReader(content2)),
+		goconf.WithoutAutoEnv(),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cfg2.Origins) != len(expected) {
+		t.Fatalf("expected %d elements, got %d: %v", len(expected), len(cfg2.Origins), cfg2.Origins)
+	}
+	for i, exp := range expected {
+		if cfg2.Origins[i] != exp {
+			t.Errorf("at index %d: expected %q, got %q", i, exp, cfg2.Origins[i])
+		}
+	}
+}
+
+func TestLargeConfigLineScanner(t *testing.T) {
+	type Config struct {
+		Cert string `key:"CERT"`
+	}
+
+	// 120 KB line (exceeds default 64 KB scanner limit)
+	largeVal := strings.Repeat("A", 120*1024)
+	content := "CERT=" + largeVal + "\n"
+
+	var cfg Config
+	err := goconf.Load(&cfg,
+		goconf.WithDotEnvReader(strings.NewReader(content)),
+		goconf.WithoutAutoEnv(),
+	)
+	if err != nil {
+		t.Fatalf("expected scanner to handle >64KB without ErrTooLong, got: %v", err)
+	}
+	if cfg.Cert != largeVal {
+		t.Errorf("large value mismatch: length %d vs %d", len(cfg.Cert), len(largeVal))
+	}
+}
+
+type errReader struct{}
+
+func (errReader) Read(p []byte) (n int, err error) {
+	return 0, errors.New("simulated io.Reader read error")
+}
+
+func TestReaderReadErrorHandling(t *testing.T) {
+	type Config struct {
+		Port int `key:"PORT"`
+	}
+
+	var cfg Config
+	err := goconf.Load(&cfg,
+		goconf.WithDotEnvReader(errReader{}),
+		goconf.WithoutAutoEnv(),
+	)
+	if err == nil {
+		t.Fatal("expected error on failed reader, got nil")
+	}
+	if !strings.Contains(err.Error(), "simulated io.Reader read error") {
+		t.Errorf("expected simulated error message, got: %v", err)
+	}
+}
+
+func TestConcurrentLoader(t *testing.T) {
+	type Config struct {
+		Port int `key:"PORT" default:"8080"`
+	}
+
+	loader := goconf.New(
+		goconf.WithDotEnvReader(strings.NewReader("PORT=9090\n")),
+		goconf.WithoutAutoEnv(),
+	)
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, 20)
+
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			var cfg Config
+			if err := loader.Load(&cfg); err != nil {
+				errCh <- err
+				return
+			}
+			if cfg.Port != 9090 {
+				errCh <- fmt.Errorf("unexpected port: %d", cfg.Port)
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		t.Errorf("concurrent load error: %v", err)
 	}
 }
