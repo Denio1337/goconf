@@ -186,9 +186,17 @@ func (d *Decoder) decodeStruct(v reflect.Value, prefix string, structPath string
 		}
 
 		// Fallback to default if key was not found in any source
-		if !hasValue && tagInfo.hasDefault {
-			rawValue = tagInfo.defaultValue
-			hasValue = true
+		if !hasValue {
+			if !fieldVal.IsZero() {
+				// The field already has a non-zero value initialized in the struct,
+				// which takes precedence over the default tag.
+				d.checkValidator(fieldVal.Addr(), fieldPath, tagInfo.isSecret, valErr)
+				continue
+			}
+			if tagInfo.hasDefault {
+				rawValue = tagInfo.defaultValue
+				hasValue = true
+			}
 		}
 
 		// If still missing, check required constraint
@@ -385,11 +393,16 @@ func (d *Decoder) decodeFieldValue(v reflect.Value, raw any, tagInfo fieldTagInf
 			valType := v.Type().Elem()
 			for _, k := range rawVal.MapKeys() {
 				newKey := reflect.New(keyType).Elem()
-				newElem := reflect.New(valType).Elem()
-
 				if err := d.decodeFieldValue(newKey, k.Interface(), tagInfo); err != nil {
 					return fmt.Errorf("map key %v: %w", k, err)
 				}
+
+				newElem := reflect.New(valType).Elem()
+				existing := mapVal.MapIndex(newKey)
+				if existing.IsValid() {
+					newElem.Set(existing)
+				}
+
 				if err := d.decodeFieldValue(newElem, rawVal.MapIndex(k).Interface(), tagInfo); err != nil {
 					return fmt.Errorf("map key %v value: %w", k, err)
 				}

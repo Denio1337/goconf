@@ -207,21 +207,70 @@ func flattenAndMerge(prefix string, current map[string]any, dest map[string]any,
 
 	for _, k := range keys {
 		v := current[k]
-		var fullKey string
-		if prefix == "" {
-			fullKey = k
-		} else {
+		fullKey := k
+		if prefix != "" {
 			fullKey = prefix + "." + k
 		}
 
 		lower := strings.ToLower(fullKey)
-		dest[lower] = v
 		if isAmbient && ambientKeys != nil {
 			ambientKeys[lower] = true
 		}
 
-		if subMap, ok := v.(map[string]any); ok {
+		subMap, isSubMap := v.(map[string]any)
+		if isSubMap {
+			existingMap, hasExisting := dest[lower].(map[string]any)
+			if hasExisting {
+				dest[lower] = deepMergeMaps(existingMap, subMap)
+			} else {
+				dest[lower] = copyMap(subMap)
+			}
 			flattenAndMerge(fullKey, subMap, dest, ambientKeys, isAmbient)
+			continue
 		}
+
+		dest[lower] = v
 	}
+}
+
+func deepMergeMaps(dst, src map[string]any) map[string]any {
+	result := make(map[string]any, len(dst)+len(src))
+	for k, v := range dst {
+		m, isMap := v.(map[string]any)
+		if isMap {
+			result[k] = copyMap(m)
+			continue
+		}
+		result[k] = v
+	}
+
+	for k, v := range src {
+		srcMap, isSrcMap := v.(map[string]any)
+		if !isSrcMap {
+			result[k] = v
+			continue
+		}
+
+		dstMap, hasDstMap := result[k].(map[string]any)
+		if hasDstMap {
+			result[k] = deepMergeMaps(dstMap, srcMap)
+			continue
+		}
+
+		result[k] = copyMap(srcMap)
+	}
+	return result
+}
+
+func copyMap(src map[string]any) map[string]any {
+	dst := make(map[string]any, len(src))
+	for k, v := range src {
+		m, isMap := v.(map[string]any)
+		if isMap {
+			dst[k] = copyMap(m)
+			continue
+		}
+		dst[k] = v
+	}
+	return dst
 }

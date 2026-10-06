@@ -1016,3 +1016,138 @@ func TestConcurrentLoader(t *testing.T) {
 		t.Errorf("concurrent load error: %v", err)
 	}
 }
+
+func TestStructValuePrecedenceOverDefault(t *testing.T) {
+	type Config struct {
+		Host string `key:"HOST" default:"default_host"`
+		Port int    `key:"PORT" default:"3000"`
+		Env  string `key:"ENV" default:"production"`
+	}
+
+	// Host is pre-initialized in Go code (Port and Env left as zero values)
+	cfg := Config{
+		Host: "pre_initialized_host",
+	}
+
+	// Source overrides Env, but provides neither Host nor Port
+	loader := goconf.New(
+		goconf.WithDotEnvReader(strings.NewReader("ENV=staging\n")),
+		goconf.WithoutAutoEnv(),
+	)
+
+	if err := loader.Load(&cfg); err != nil {
+		t.Fatalf("unexpected load error: %v", err)
+	}
+
+	// Pre-initialized value MUST NOT be overwritten by default tag
+	if cfg.Host != "pre_initialized_host" {
+		t.Errorf("expected Host=pre_initialized_host, got %s", cfg.Host)
+	}
+	// Zero-value field MUST receive default tag
+	if cfg.Port != 3000 {
+		t.Errorf("expected Port=3000 from default tag, got %d", cfg.Port)
+	}
+	// Source value MUST override zero value
+	if cfg.Env != "staging" {
+		t.Errorf("expected Env=staging from source, got %s", cfg.Env)
+	}
+}
+
+func TestMapOfStructsMergingExistingElements(t *testing.T) {
+	type Server struct {
+		Host    string        `key:"host"`
+		Port    int           `key:"port"`
+		Timeout time.Duration `key:"timeout"`
+	}
+
+	type Config struct {
+		Services map[string]Server `key:"services"`
+	}
+
+	// Pre-populated map with default server settings
+	cfg := Config{
+		Services: map[string]Server{
+			"auth": {
+				Host:    "auth.default.internal",
+				Port:    8080,
+				Timeout: 5 * time.Second,
+			},
+			"metrics": {
+				Host:    "metrics.default.internal",
+				Port:    9090,
+				Timeout: 10 * time.Second,
+			},
+		},
+	}
+
+	// Incoming JSON overrides only auth.port, leaves host and timeout unmentioned, and adds billing
+	jsonContent := `{
+		"services": {
+			"auth": {"port": 9001},
+			"billing": {"host": "billing.local", "port": 7001, "timeout": "3s"}
+		}
+	}`
+
+	loader := goconf.New(
+		goconf.WithJSONReader(strings.NewReader(jsonContent)),
+		goconf.WithoutAutoEnv(),
+	)
+
+	if err := loader.Load(&cfg); err != nil {
+		t.Fatalf("unexpected load error: %v", err)
+	}
+
+	// Existing "auth" entry should have updated Port, but retained Host and Timeout
+	auth := cfg.Services["auth"]
+	if auth.Port != 9001 {
+		t.Errorf("expected auth.Port=9001, got %d", auth.Port)
+	}
+	if auth.Host != "auth.default.internal" {
+		t.Errorf("expected auth.Host to be preserved, got %s", auth.Host)
+	}
+	if auth.Timeout != 5*time.Second {
+		t.Errorf("expected auth.Timeout to be preserved, got %v", auth.Timeout)
+	}
+
+	// Existing "metrics" entry unmentioned in JSON should be fully preserved
+	metrics := cfg.Services["metrics"]
+	if metrics.Host != "metrics.default.internal" || metrics.Port != 9090 {
+		t.Errorf("expected metrics to be preserved, got %+v", metrics)
+	}
+
+	// New "billing" entry should be added
+	billing := cfg.Services["billing"]
+	if billing.Host != "billing.local" || billing.Port != 7001 || billing.Timeout != 3*time.Second {
+		t.Errorf("expected billing to be added, got %+v", billing)
+	}
+}
+
+func TestMultiSourceMapDeepMerge(t *testing.T) {
+	type Config struct {
+		Features map[string]bool `key:"features"`
+	}
+
+	json1 := `{"features": {"cache": true, "logging": false}}`
+	json2 := `{"features": {"logging": true, "tracing": true}}`
+
+	var cfg Config
+	loader := goconf.New(
+		goconf.WithJSONReader(strings.NewReader(json1)),
+		goconf.WithJSONReader(strings.NewReader(json2)),
+		goconf.WithoutAutoEnv(),
+	)
+
+	if err := loader.Load(&cfg); err != nil {
+		t.Fatalf("unexpected load error: %v", err)
+	}
+
+	if cfg.Features["cache"] != true {
+		t.Errorf("expected cache=true from first source, got %v", cfg.Features["cache"])
+	}
+	if cfg.Features["logging"] != true {
+		t.Errorf("expected logging=true overridden by second source, got %v", cfg.Features["logging"])
+	}
+	if cfg.Features["tracing"] != true {
+		t.Errorf("expected tracing=true added by second source, got %v", cfg.Features["tracing"])
+	}
+}

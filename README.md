@@ -155,6 +155,18 @@ By default, `goconf` automatically appends OS environment variables at the end w
 
 Check out [examples/complex](examples/complex) for a full runnable demonstration combining 5 cascading format layers.
 
+### Value Precedence and Collection Merging
+
+`goconf` enforces a clear precedence hierarchy when populating structs:
+
+1. **Configuration sources** (Environment variables > files loaded later > files loaded earlier) — highest priority.
+2. **Pre-initialized struct values** (e.g. `cfg := Config{Port: 8080}`) — preserved when a key is not specified in configuration sources, taking precedence over `default` tags.
+3. **`default` tags** (`default:"3000"`) — fallback for fields that remain at their zero value and were not provided by any source.
+
+#### Collection Strategies:
+- **Maps (`map[K]V`)**: **Deep Merge**. Merging across multiple configuration sources or over pre-populated maps recursively combines keys. For maps containing structs (`map[string]Server`), existing struct fields unmentioned in incoming sources are preserved.
+- **Slices (`[]T`)**: **Full Replacement (Replace)**. Slices from higher-precedence sources replace slices from lower-precedence sources entirely.
+
 ## Struct Tags and Options
 
 `goconf` supports the following struct tags for schema definition:

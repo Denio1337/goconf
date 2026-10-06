@@ -144,6 +144,10 @@ func (d *Decoder) decodeMap(v reflect.Value, raw string, tagInfo fieldTagInfo) e
 		}
 
 		elemVal := reflect.New(valType).Elem()
+		existing := mapVal.MapIndex(keyVal)
+		if existing.IsValid() {
+			elemVal.Set(existing)
+		}
 		if err := d.decodeFieldValue(elemVal, vStr, tagInfo); err != nil {
 			return fmt.Errorf("map value for key %q: %w", kStr, err)
 		}

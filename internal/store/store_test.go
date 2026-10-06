@@ -133,3 +133,65 @@ func TestStore_AmbientKeysFiltering(t *testing.T) {
 		t.Fatalf("expected non-existent key to return nil, false, got %v, %v", val, ok)
 	}
 }
+
+func TestStore_DeepMergeMaps(t *testing.T) {
+	s := store.New()
+
+	// Source 1 (e.g. base config)
+	s.Merge(map[string]any{
+		"features": map[string]any{
+			"cache":   true,
+			"logging": false,
+			"nested": map[string]any{
+				"a": 1,
+				"b": 2,
+			},
+		},
+	})
+
+	// Source 2 (e.g. override config)
+	s.Merge(map[string]any{
+		"features": map[string]any{
+			"logging": true, // overridden
+			"metrics": true, // added
+			"nested": map[string]any{
+				"b": 20, // overridden in nested
+				"c": 30, // added in nested
+			},
+		},
+	})
+
+	rawMap, ok := s.Get("features")
+	if !ok {
+		t.Fatal("expected features to be found")
+	}
+
+	m, ok := rawMap.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map[string]any, got %T", rawMap)
+	}
+
+	if m["cache"] != true {
+		t.Errorf("expected cache=true (from base), got %v", m["cache"])
+	}
+	if m["logging"] != true {
+		t.Errorf("expected logging=true (overridden), got %v", m["logging"])
+	}
+	if m["metrics"] != true {
+		t.Errorf("expected metrics=true (from override), got %v", m["metrics"])
+	}
+
+	nested, ok := m["nested"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected nested map[string]any, got %T", m["nested"])
+	}
+	if nested["a"] != 1 {
+		t.Errorf("expected nested.a=1, got %v", nested["a"])
+	}
+	if nested["b"] != 20 {
+		t.Errorf("expected nested.b=20 (overridden), got %v", nested["b"])
+	}
+	if nested["c"] != 30 {
+		t.Errorf("expected nested.c=30, got %v", nested["c"])
+	}
+}
